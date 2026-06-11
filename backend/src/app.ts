@@ -6,6 +6,7 @@ import { registerHealthRoutes } from './routes/health.route';
 import { registerInstructorRoutes } from './routes/instructors.route';
 import { registerProfileRoutes } from './routes/profile.route';
 import { registerUserRoutes } from './routes/users.route';
+import { AppointmentRatingRepository } from './repositories/appointment-rating.repository';
 import { AppointmentRepository } from './repositories/appointment.repository';
 import { UserRepository } from './repositories/user.repository';
 import { AppointmentReminderQueue } from './queues/appointment-reminder.queue';
@@ -13,6 +14,7 @@ import { AppointmentReminderQueue } from './queues/appointment-reminder.queue';
 type BuildAppOptions = {
   userRepository: UserRepository;
   appointmentRepository: AppointmentRepository;
+  appointmentRatingRepository: AppointmentRatingRepository;
   jwtSecret?: string;
   appointmentReminderQueue?: AppointmentReminderQueue;
 };
@@ -37,6 +39,7 @@ export async function buildApp(options: BuildAppOptions) {
   await registerInstructorRoutes(fastify, {
     jwtSecret,
     userRepository: options.userRepository,
+    appointmentRatingRepository: options.appointmentRatingRepository,
   });
   await registerAppointmentsRoutes(
     fastify,
@@ -45,12 +48,14 @@ export async function buildApp(options: BuildAppOptions) {
           jwtSecret,
           userRepository: options.userRepository,
           appointmentRepository: options.appointmentRepository,
+          appointmentRatingRepository: options.appointmentRatingRepository,
           appointmentReminderQueue: options.appointmentReminderQueue,
         }
       : {
           jwtSecret,
           userRepository: options.userRepository,
           appointmentRepository: options.appointmentRepository,
+          appointmentRatingRepository: options.appointmentRatingRepository,
         },
   );
   await registerUserRoutes(fastify, {
