@@ -14,6 +14,7 @@ import {
   User,
   UserRepository,
 } from '../repositories/user.repository';
+import { LearningRepository } from '../repositories/learning.repository';
 import { hashPassword } from '../services/password.service';
 
 class InMemoryUserRepository implements UserRepository {
@@ -172,19 +173,47 @@ class InMemoryAppointmentRepository implements AppointmentRepository {
   }
 }
 
+class InMemoryLearningRepository implements LearningRepository {
+  async ensureSchema() {}
+  async seedDefaultLearningData() {}
+  async listModulesByStudent() {
+    return [];
+  }
+  async findModuleById() {
+    return null;
+  }
+  async findContentById() {
+    return null;
+  }
+  async recordContentProgress() {}
+  async listQuizQuestionsByModule() {
+    return [];
+  }
+  async evaluateQuizAnswers() {
+    return {
+      total: 0,
+      correct: 0,
+      results: [],
+    };
+  }
+}
+
 async function createAppWithRepositories(options?: { jwtSecret?: string }) {
   const userRepository = new InMemoryUserRepository();
   const appointmentRepository = new InMemoryAppointmentRepository(userRepository);
+  const learningRepository = new InMemoryLearningRepository();
   const appOptions =
     options?.jwtSecret !== undefined
       ? {
           userRepository,
           appointmentRepository,
+          learningRepository,
           jwtSecret: options.jwtSecret,
         }
       : {
           userRepository,
           appointmentRepository,
+          learningRepository,
         };
   const app = await buildApp({
     ...appOptions,
