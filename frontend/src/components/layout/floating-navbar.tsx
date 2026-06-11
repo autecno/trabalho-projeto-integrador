@@ -65,6 +65,11 @@ export function FloatingNavbar({ privateArea = false }: FloatingNavbarProps) {
                   Dashboard
                 </Button>
               </Link>
+              <Link href="/learning">
+                <Button variant={pathname === "/learning" ? "default" : "outline"}>
+                  Conteúdos
+                </Button>
+              </Link>
               {hasToken && (
                 <Button variant="ghost" onClick={handleLogout}>
                   Sair
