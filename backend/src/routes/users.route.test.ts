@@ -2,6 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildApp } from '../app';
 import {
+  AppointmentRating,
+  AppointmentRatingRepository,
+  CreateAppointmentRatingData,
+} from '../repositories/appointment-rating.repository';
+import {
   Appointment,
   AppointmentRepository,
   AppointmentStatus,
@@ -172,25 +177,103 @@ class InMemoryAppointmentRepository implements AppointmentRepository {
   }
 }
 
+class InMemoryAppointmentRatingRepository implements AppointmentRatingRepository {
+  private ratings: AppointmentRating[] = [];
+  private sequence = 1;
+
+  async ensureSchema() {}
+
+  async create(data: CreateAppointmentRatingData): Promise<AppointmentRating> {
+    const now = new Date();
+    const rating: AppointmentRating = {
+      id: this.sequence++,
+      appointmentId: data.appointmentId,
+      evaluatorUserId: data.evaluatorUserId,
+      evaluatedUserId: data.evaluatedUserId,
+      score: data.score,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    this.ratings.push(rating);
+    return rating;
+  }
+
+  async findByAppointmentAndEvaluator(
+    appointmentId: number,
+    evaluatorUserId: number,
+  ): Promise<AppointmentRating | null> {
+    return (
+      this.ratings.find(
+        (rating) =>
+          rating.appointmentId === appointmentId &&
+          rating.evaluatorUserId === evaluatorUserId,
+      ) ?? null
+    );
+  }
+
+  async listByAppointmentIdsForEvaluator(
+    appointmentIds: number[],
+    evaluatorUserId: number,
+  ): Promise<AppointmentRating[]> {
+    return this.ratings.filter(
+      (rating) =>
+        rating.evaluatorUserId === evaluatorUserId &&
+        appointmentIds.includes(rating.appointmentId),
+    );
+  }
+
+  async listReceivedSummariesByUserIds(userIds: number[]) {
+    return userIds
+      .filter((userId, index) => userIds.indexOf(userId) === index)
+      .map((userId) => {
+        const userRatings = this.ratings.filter(
+          (rating) => rating.evaluatedUserId === userId,
+        );
+
+        if (userRatings.length === 0) {
+          return null;
+        }
+
+        const totalScore = userRatings.reduce((sum, rating) => sum + rating.score, 0);
+
+        return {
+          userId,
+          averageScore: Number((totalScore / userRatings.length).toFixed(2)),
+          totalRatings: userRatings.length,
+        };
+      })
+      .filter((summary): summary is NonNullable<typeof summary> => summary !== null);
+  }
+}
+
 async function createAppWithRepositories(options?: { jwtSecret?: string }) {
   const userRepository = new InMemoryUserRepository();
   const appointmentRepository = new InMemoryAppointmentRepository(userRepository);
+  const appointmentRatingRepository = new InMemoryAppointmentRatingRepository();
   const appOptions =
     options?.jwtSecret !== undefined
       ? {
           userRepository,
           appointmentRepository,
+          appointmentRatingRepository,
           jwtSecret: options.jwtSecret,
         }
       : {
           userRepository,
           appointmentRepository,
+          appointmentRatingRepository,
         };
   const app = await buildApp({
     ...appOptions,
   });
 
-  return { app, userRepository, appointmentRepository };
+  return {
+    app,
+    userRepository,
+    appointmentRepository,
+    appointmentRatingRepository,
+  };
 }
 
 test('POST /users creates a new user successfully', async () => {
@@ -381,10 +464,14 @@ test('GET /instructors returns available instructors for authenticated users', a
     {
       id: 1,
       name: 'Ana Instrutora',
+      averageRating: null,
+      totalRatings: 0,
     },
     {
       id: 2,
       name: 'Bruno Instrutor',
+      averageRating: null,
+      totalRatings: 0,
     },
   ]);
 
@@ -557,6 +644,276 @@ test('PATCH /appointments/:id/status lets instructor confirm own appointment', a
 
   assert.equal(patchResponse.statusCode, 200);
   assert.equal(patchResponse.json().status, 'confirmed');
+
+  await app.close();
+});
+
+test('POST /appointments/:id/rating allows both sides to rate after a completed lesson', async () => {
+  const { app, userRepository } = await createAppWithRepositories({
+    jwtSecret: 'test-secret',
+  });
+  const instructor = await userRepository.create({
+    name: 'Instrutora Lia',
+    email: 'instrutora.lia@example.com',
+    passwordHash: hashPassword('123456'),
+    role: 'instructor',
+  });
+  const student = await userRepository.create({
+    name: 'Aluno Ravi',
+    email: 'aluno.ravi@example.com',
+    passwordHash: hashPassword('123456'),
+    role: 'student',
+  });
+
+  const studentLogin = await app.inject({
+    method: 'POST',
+    url: '/auth/login',
+    payload: {
+      email: student.email,
+      password: '123456',
+    },
+  });
+  const instructorLogin = await app.inject({
+    method: 'POST',
+    url: '/auth/login',
+    payload: {
+      email: instructor.email,
+      password: '123456',
+    },
+  });
+
+  const createResponse = await app.inject({
+    method: 'POST',
+    url: '/appointments',
+    headers: {
+      authorization: `Bearer ${studentLogin.json().token}`,
+    },
+    payload: {
+      instructorId: instructor.id,
+      scheduledAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+    },
+  });
+
+  const appointmentId = createResponse.json().id;
+
+  await app.inject({
+    method: 'PATCH',
+    url: `/appointments/${appointmentId}/status`,
+    headers: {
+      authorization: `Bearer ${instructorLogin.json().token}`,
+    },
+    payload: {
+      status: 'confirmed' as AppointmentStatus,
+    },
+  });
+
+  await app.inject({
+    method: 'PATCH',
+    url: `/appointments/${appointmentId}/status`,
+    headers: {
+      authorization: `Bearer ${instructorLogin.json().token}`,
+    },
+    payload: {
+      status: 'completed' as AppointmentStatus,
+    },
+  });
+
+  const studentRatingResponse = await app.inject({
+    method: 'POST',
+    url: `/appointments/${appointmentId}/rating`,
+    headers: {
+      authorization: `Bearer ${studentLogin.json().token}`,
+    },
+    payload: {
+      score: 5,
+    },
+  });
+
+  assert.equal(studentRatingResponse.statusCode, 201);
+  assert.deepEqual(studentRatingResponse.json(), {
+    id: 1,
+    appointmentId,
+    evaluatorUserId: student.id,
+    evaluatedUserId: instructor.id,
+    score: 5,
+    averageRating: 5,
+    totalRatings: 1,
+  });
+
+  const instructorRatingResponse = await app.inject({
+    method: 'POST',
+    url: `/appointments/${appointmentId}/rating`,
+    headers: {
+      authorization: `Bearer ${instructorLogin.json().token}`,
+    },
+    payload: {
+      score: 4,
+    },
+  });
+
+  assert.equal(instructorRatingResponse.statusCode, 201);
+  assert.deepEqual(instructorRatingResponse.json(), {
+    id: 2,
+    appointmentId,
+    evaluatorUserId: instructor.id,
+    evaluatedUserId: student.id,
+    score: 4,
+    averageRating: 4,
+    totalRatings: 1,
+  });
+
+  const instructorsResponse = await app.inject({
+    method: 'GET',
+    url: '/instructors',
+    headers: {
+      authorization: `Bearer ${studentLogin.json().token}`,
+    },
+  });
+
+  assert.equal(instructorsResponse.statusCode, 200);
+  assert.deepEqual(instructorsResponse.json(), [
+    {
+      id: instructor.id,
+      name: instructor.name,
+      averageRating: 5,
+      totalRatings: 1,
+    },
+  ]);
+
+  const studentAppointmentsResponse = await app.inject({
+    method: 'GET',
+    url: '/appointments',
+    headers: {
+      authorization: `Bearer ${studentLogin.json().token}`,
+    },
+  });
+
+  assert.equal(studentAppointmentsResponse.statusCode, 200);
+  assert.equal(studentAppointmentsResponse.json()[0].counterpartAverageRating, 5);
+  assert.equal(studentAppointmentsResponse.json()[0].counterpartTotalRatings, 1);
+  assert.equal(studentAppointmentsResponse.json()[0].currentUserRatingScore, 5);
+  assert.equal(studentAppointmentsResponse.json()[0].canCurrentUserRate, false);
+
+  const instructorAppointmentsResponse = await app.inject({
+    method: 'GET',
+    url: '/appointments',
+    headers: {
+      authorization: `Bearer ${instructorLogin.json().token}`,
+    },
+  });
+
+  assert.equal(instructorAppointmentsResponse.statusCode, 200);
+  assert.equal(instructorAppointmentsResponse.json()[0].counterpartAverageRating, 4);
+  assert.equal(instructorAppointmentsResponse.json()[0].counterpartTotalRatings, 1);
+  assert.equal(instructorAppointmentsResponse.json()[0].currentUserRatingScore, 4);
+  assert.equal(instructorAppointmentsResponse.json()[0].canCurrentUserRate, false);
+
+  await app.close();
+});
+
+test('POST /appointments/:id/rating blocks rating before completion and duplicate submissions', async () => {
+  const { app, userRepository } = await createAppWithRepositories({
+    jwtSecret: 'test-secret',
+  });
+  const instructor = await userRepository.create({
+    name: 'Instrutor Ivo',
+    email: 'instrutor.ivo@example.com',
+    passwordHash: hashPassword('123456'),
+    role: 'instructor',
+  });
+  const student = await userRepository.create({
+    name: 'Aluno Nilo',
+    email: 'aluno.nilo@example.com',
+    passwordHash: hashPassword('123456'),
+    role: 'student',
+  });
+
+  const studentLogin = await app.inject({
+    method: 'POST',
+    url: '/auth/login',
+    payload: {
+      email: student.email,
+      password: '123456',
+    },
+  });
+  const instructorLogin = await app.inject({
+    method: 'POST',
+    url: '/auth/login',
+    payload: {
+      email: instructor.email,
+      password: '123456',
+    },
+  });
+
+  const createResponse = await app.inject({
+    method: 'POST',
+    url: '/appointments',
+    headers: {
+      authorization: `Bearer ${studentLogin.json().token}`,
+    },
+    payload: {
+      instructorId: instructor.id,
+      scheduledAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+    },
+  });
+
+  const appointmentId = createResponse.json().id;
+
+  const earlyRatingResponse = await app.inject({
+    method: 'POST',
+    url: `/appointments/${appointmentId}/rating`,
+    headers: {
+      authorization: `Bearer ${studentLogin.json().token}`,
+    },
+    payload: {
+      score: 5,
+    },
+  });
+
+  assert.equal(earlyRatingResponse.statusCode, 409);
+  assert.deepEqual(earlyRatingResponse.json(), {
+    message: 'A aula precisa estar concluída para receber avaliação.',
+  });
+
+  await app.inject({
+    method: 'PATCH',
+    url: `/appointments/${appointmentId}/status`,
+    headers: {
+      authorization: `Bearer ${instructorLogin.json().token}`,
+    },
+    payload: {
+      status: 'completed' as AppointmentStatus,
+    },
+  });
+
+  const firstRatingResponse = await app.inject({
+    method: 'POST',
+    url: `/appointments/${appointmentId}/rating`,
+    headers: {
+      authorization: `Bearer ${studentLogin.json().token}`,
+    },
+    payload: {
+      score: 5,
+    },
+  });
+
+  assert.equal(firstRatingResponse.statusCode, 201);
+
+  const duplicateRatingResponse = await app.inject({
+    method: 'POST',
+    url: `/appointments/${appointmentId}/rating`,
+    headers: {
+      authorization: `Bearer ${studentLogin.json().token}`,
+    },
+    payload: {
+      score: 4,
+    },
+  });
+
+  assert.equal(duplicateRatingResponse.statusCode, 409);
+  assert.deepEqual(duplicateRatingResponse.json(), {
+    message: 'Você já avaliou esta aula.',
+  });
 
   await app.close();
 });
