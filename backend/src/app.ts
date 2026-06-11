@@ -9,6 +9,7 @@ import { registerNotificationsRoutes } from './routes/notifications.route';
 import { registerProfileRoutes } from './routes/profile.route';
 import { registerQuizRoutes } from './routes/quiz.route';
 import { registerUserRoutes } from './routes/users.route';
+import { AppointmentRatingRepository } from './repositories/appointment-rating.repository';
 import { AppointmentRepository } from './repositories/appointment.repository';
 import { LearningRepository } from './repositories/learning.repository';
 import { NotificationRepository } from './repositories/notification.repository';
@@ -20,6 +21,7 @@ type BuildAppOptions = {
   appointmentRepository: AppointmentRepository;
   learningRepository: LearningRepository;
   notificationRepository?: NotificationRepository;
+  appointmentRatingRepository: AppointmentRatingRepository;
   jwtSecret?: string;
   appointmentReminderQueue?: AppointmentReminderQueue;
 };
@@ -58,11 +60,13 @@ export async function buildApp(options: BuildAppOptions) {
   await registerInstructorRoutes(fastify, {
     jwtSecret,
     userRepository: options.userRepository,
+    appointmentRatingRepository: options.appointmentRatingRepository,
   });
   await registerAppointmentsRoutes(fastify, {
     jwtSecret,
     userRepository: options.userRepository,
     appointmentRepository: options.appointmentRepository,
+    appointmentRatingRepository: options.appointmentRatingRepository,
     ...(options.notificationRepository
       ? { notificationRepository: options.notificationRepository }
       : {}),
