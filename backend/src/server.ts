@@ -4,6 +4,7 @@ import { buildApp } from './app';
 import { createAppointmentReminderQueue } from './queues/appointment-reminder.queue';
 import { createRedisConnection } from './queues/redis-connection';
 import { MySqlAppointmentRepository } from './repositories/appointment.repository';
+import { MySqlLearningRepository } from './repositories/learning.repository';
 import { MySqlNotificationRepository } from './repositories/notification.repository';
 import { MySqlUserRepository } from './repositories/user.repository';
 
@@ -32,12 +33,16 @@ async function start() {
     await userRepository.ensureSchema();
     const appointmentRepository = new MySqlAppointmentRepository(mysqlPool);
     await appointmentRepository.ensureSchema();
+    const learningRepository = new MySqlLearningRepository(mysqlPool);
+    await learningRepository.ensureSchema();
+    await learningRepository.seedDefaultLearningData();
     const notificationRepository = new MySqlNotificationRepository(mysqlPool);
     await notificationRepository.ensureSchema();
 
     const fastify = await buildApp({
       userRepository,
       appointmentRepository,
+      learningRepository,
       appointmentReminderQueue,
     });
 

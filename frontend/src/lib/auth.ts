@@ -1,5 +1,14 @@
 const TOKEN_STORAGE_KEY = "autecno.jwt";
 
+export type StoredTokenPayload = {
+  sub: string;
+  name: string;
+  email: string;
+  role: "student" | "instructor";
+  iat: number;
+  exp: number;
+};
+
 export function getTokenStorageKey() {
   return TOKEN_STORAGE_KEY;
 }
@@ -26,4 +35,28 @@ export function clearStoredToken() {
   }
 
   window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+}
+
+export function getStoredTokenPayload(): StoredTokenPayload | null {
+  const token = getStoredToken();
+  if (!token) {
+    return null;
+  }
+
+  try {
+    const [, payload] = token.split(".");
+    if (!payload) {
+      return null;
+    }
+
+    const normalizedPayload = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const paddedPayload = normalizedPayload.padEnd(
+      normalizedPayload.length + ((4 - (normalizedPayload.length % 4)) % 4),
+      "=",
+    );
+
+    return JSON.parse(window.atob(paddedPayload)) as StoredTokenPayload;
+  } catch {
+    return null;
+  }
 }
