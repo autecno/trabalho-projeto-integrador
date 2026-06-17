@@ -4,7 +4,11 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Logo } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
-import { clearStoredToken, getStoredToken } from "@/lib/auth";
+import {
+  clearStoredToken,
+  getStoredToken,
+  getStoredTokenPayload,
+} from "@/lib/auth";
 
 type FloatingNavbarProps = {
   privateArea?: boolean;
@@ -13,8 +17,10 @@ type FloatingNavbarProps = {
 export function FloatingNavbar({ privateArea = false }: FloatingNavbarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const hasToken = !!getStoredToken();
+  const token = getStoredToken();
+  const hasToken = !!token;
   const isLanding = pathname === "/";
+  const tokenPayload = getStoredTokenPayload();
 
   const handleLogout = () => {
     clearStoredToken();
@@ -65,6 +71,15 @@ export function FloatingNavbar({ privateArea = false }: FloatingNavbarProps) {
                   Dashboard
                 </Button>
               </Link>
+              {tokenPayload?.role === "student" && (
+                <Link href="/learning">
+                  <Button
+                    variant={pathname.startsWith("/learning") ? "default" : "outline"}
+                  >
+                    Conteúdos
+                  </Button>
+                </Link>
+              )}
               {hasToken && (
                 <Button variant="ghost" onClick={handleLogout}>
                   Sair
