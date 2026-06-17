@@ -19,12 +19,13 @@ export default function LearningPage() {
   const token = getStoredToken();
   const [modules, setModules] = useState<ModuleSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(Boolean(token));
+  const authError = token
+    ? null
+    : 'Você precisa fazer login para acessar os conteúdos.';
 
   useEffect(() => {
     if (!token) {
-      setError('Você precisa fazer login para acessar os conteúdos.');
-      setLoading(false);
       return;
     }
 
@@ -72,7 +73,7 @@ export default function LearningPage() {
       </div>
 
       {loading && <p>Carregando módulos...</p>}
-      {error && <p className="text-rose-600">{error}</p>}
+      {(error || authError) && <p className="text-rose-600">{error ?? authError}</p>}
 
       <div className="grid gap-4 md:grid-cols-2">
         {modules.map((module) => (
