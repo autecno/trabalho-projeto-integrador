@@ -60,6 +60,8 @@ export default function ModulePage() {
   const [submitting, setSubmitting] = useState(false);
 
   const moduleId = Number(params.moduleId);
+  const invalidModuleId = !Number.isFinite(moduleId) || moduleId <= 0;
+  const validationError = invalidModuleId ? 'moduleId inválido.' : null;
   const filteredContents = useMemo(
     () =>
       module?.contents.filter((content) =>
@@ -74,9 +76,7 @@ export default function ModulePage() {
       return;
     }
 
-    if (!Number.isFinite(moduleId) || moduleId <= 0) {
-      setError('moduleId inválido.');
-      setLoading(false);
+    if (invalidModuleId) {
       return;
     }
 
@@ -118,7 +118,7 @@ export default function ModulePage() {
     };
 
     loadData();
-  }, [token, moduleId, router]);
+  }, [token, moduleId, invalidModuleId, router]);
 
   const handleSelectAnswer = (questionId: number, optionIndex: number) => {
     setSelectedAnswers((current) => ({ ...current, [questionId]: optionIndex }));
@@ -178,7 +178,9 @@ export default function ModulePage() {
       </div>
 
       {loading && <p>Carregando módulo...</p>}
-      {error && <p className="text-rose-600">{error}</p>}
+      {(error || validationError) && (
+        <p className="text-rose-600">{error ?? validationError}</p>
+      )}
 
       {module && (
         <div className="grid gap-6 lg:grid-cols-[1.6fr_1fr]">

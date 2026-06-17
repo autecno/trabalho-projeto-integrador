@@ -33,6 +33,12 @@ export default function ContentPage() {
 
   const moduleId = Number(params.moduleId);
   const contentId = Number(params.contentId);
+  const invalidParams =
+    !Number.isFinite(moduleId) ||
+    moduleId <= 0 ||
+    !Number.isFinite(contentId) ||
+    contentId <= 0;
+  const validationError = invalidParams ? 'Parâmetros inválidos.' : null;
 
   useEffect(() => {
     if (!token) {
@@ -40,14 +46,7 @@ export default function ContentPage() {
       return;
     }
 
-    if (
-      !Number.isFinite(moduleId) ||
-      moduleId <= 0 ||
-      !Number.isFinite(contentId) ||
-      contentId <= 0
-    ) {
-      setError('Parâmetros inválidos.');
-      setLoading(false);
+    if (invalidParams) {
       return;
     }
 
@@ -85,7 +84,7 @@ export default function ContentPage() {
     };
 
     loadContent();
-  }, [token, contentId, router]);
+  }, [token, contentId, invalidParams, router]);
 
   const embedUrl = content?.youtubeUrl ? getYoutubeEmbedUrl(content.youtubeUrl) : null;
 
@@ -107,7 +106,9 @@ export default function ContentPage() {
       </div>
 
       {loading && <p>Carregando conteúdo...</p>}
-      {error && <p className="text-rose-600">{error}</p>}
+      {(error || validationError) && (
+        <p className="text-rose-600">{error ?? validationError}</p>
+      )}
 
       {content && (
         <div className="space-y-6">
