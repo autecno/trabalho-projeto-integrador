@@ -54,21 +54,17 @@ export async function buildApp(options: BuildAppOptions) {
     jwtSecret,
     userRepository: options.userRepository,
   });
-  await registerAppointmentsRoutes(
-    fastify,
-    options.appointmentReminderQueue
-      ? {
-          jwtSecret,
-          userRepository: options.userRepository,
-          appointmentRepository: options.appointmentRepository,
-          appointmentReminderQueue: options.appointmentReminderQueue,
-        }
-      : {
-          jwtSecret,
-          userRepository: options.userRepository,
-          appointmentRepository: options.appointmentRepository,
-        },
-  );
+  await registerAppointmentsRoutes(fastify, {
+    jwtSecret,
+    userRepository: options.userRepository,
+    appointmentRepository: options.appointmentRepository,
+    ...(options.notificationRepository
+      ? { notificationRepository: options.notificationRepository }
+      : {}),
+    ...(options.appointmentReminderQueue
+      ? { appointmentReminderQueue: options.appointmentReminderQueue }
+      : {}),
+  });
   await registerUserRoutes(fastify, {
     userRepository: options.userRepository,
   });

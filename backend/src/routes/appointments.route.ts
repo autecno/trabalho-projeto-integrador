@@ -4,6 +4,7 @@ import { AuthTokenPayload } from '../services/jwt.service';
 import {
   AppointmentRepository,
   AppointmentStatus,
+  UpsertInstructorAvailabilityData,
 } from '../repositories/appointment.repository';
 import { UserRepository } from '../repositories/user.repository';
 import {
@@ -11,11 +12,16 @@ import {
   removeAppointmentReminderJobs,
   scheduleAppointmentReminderJobs,
 } from '../queues/appointment-reminder.queue';
+import {
+  NotificationRepository,
+  NotificationType,
+} from '../repositories/notification.repository';
 
 type RegisterAppointmentsRoutesOptions = {
   jwtSecret: string;
   userRepository: UserRepository;
   appointmentRepository: AppointmentRepository;
+  notificationRepository?: NotificationRepository;
   appointmentReminderQueue?: AppointmentReminderQueue;
 };
 
@@ -30,6 +36,10 @@ type UpdateAppointmentStatusBody = {
   cancellationReason?: string;
 };
 
+type AvailabilitySettingsBody = {
+  intervals?: UpsertInstructorAvailabilityData[];
+};
+
 const STUDENT_ALLOWED_STATUS: AppointmentStatus[] = ['cancelled'];
 const INSTRUCTOR_ALLOWED_STATUS: AppointmentStatus[] = [
   'confirmed',
@@ -42,6 +52,31 @@ const STATUS_WITHOUT_PENDING_REMINDERS: AppointmentStatus[] = [
   'rejected',
   'completed',
 ];
+const STATUS_NOTIFICATION: Record<
+  AppointmentStatus,
+  { type: NotificationType; title: string }
+> = {
+  pending: {
+    type: 'appointment-requested',
+    title: 'Nova solicitação de aula',
+  },
+  confirmed: {
+    type: 'appointment-confirmed',
+    title: 'Aula confirmada',
+  },
+  rejected: {
+    type: 'appointment-rejected',
+    title: 'Aula recusada',
+  },
+  cancelled: {
+    type: 'appointment-cancelled',
+    title: 'Aula cancelada',
+  },
+  completed: {
+    type: 'appointment-completed',
+    title: 'Aula concluída',
+  },
+};
 
 type AuthenticatedRequest = {
   user: AuthTokenPayload;
@@ -112,6 +147,59 @@ export async function registerAppointmentsRoutes(
   );
 
   fastify.get(
+    '/appointments/availability-settings',
+    { preHandler: authenticateRequest },
+    async (request, reply) => {
+      const authenticatedRequest = request as typeof request & AuthenticatedRequest;
+
+      if (authenticatedRequest.user.role !== 'instructor') {
+        return reply.status(403).send({
+          message: 'Somente instrutores podem configurar disponibilidade.',
+        });
+      }
+
+      const instructorId = Number(authenticatedRequest.user.sub);
+      const intervals =
+        await options.appointmentRepository.listAvailabilityByInstructor(
+          instructorId,
+        );
+
+      return { intervals };
+    },
+  );
+
+  fastify.put<{ Body: AvailabilitySettingsBody }>(
+    '/appointments/availability-settings',
+    { preHandler: authenticateRequest },
+    async (request, reply) => {
+      const authenticatedRequest = request as typeof request & AuthenticatedRequest;
+
+      if (authenticatedRequest.user.role !== 'instructor') {
+        return reply.status(403).send({
+          message: 'Somente instrutores podem configurar disponibilidade.',
+        });
+      }
+
+      const intervals = request.body?.intervals ?? [];
+      const validationError = validateAvailabilityIntervals(intervals);
+      if (validationError) {
+        return reply.status(400).send({
+          message: validationError,
+        });
+      }
+
+      const instructorId = Number(authenticatedRequest.user.sub);
+      const savedIntervals =
+        await options.appointmentRepository.replaceAvailability(
+          instructorId,
+          intervals,
+        );
+
+      return { intervals: savedIntervals };
+    },
+  );
+
+  fastify.get(
     '/appointments/availability',
     { preHandler: authenticateRequest },
     async (request, reply) => {
@@ -132,7 +220,7 @@ export async function registerAppointmentsRoutes(
         });
       }
 
-      const dateStart = new Date(`${dateRaw}T00:00:00.000Z`);
+      const dateStart = buildSaoPauloDate(dateRaw, 0, 0);
       if (Number.isNaN(dateStart.getTime())) {
         return reply.status(400).send({
           message: 'Data inválida.',
@@ -156,14 +244,42 @@ export async function registerAppointmentsRoutes(
           .map((appointment) => appointment.scheduledAt.toISOString()),
       );
 
-      const daySlots = [8, 9, 10, 11, 14, 15, 16, 17].map((hour) => {
-        const slotDate = new Date(dateStart);
-        slotDate.setUTCHours(hour, 0, 0, 0);
+      const weekday = getSaoPauloWeekday(dateStart);
+      const intervals = (
+        await options.appointmentRepository.listAvailabilityByInstructor(
+          instructorId,
+        )
+      ).filter((interval) => interval.weekday === weekday);
+
+      const daySlots = intervals.flatMap((interval) => {
+        const slots: Array<{ scheduledAt: string; available: boolean }> = [];
+        const startParts = parseTimeParts(interval.startTime);
+        const endParts = parseTimeParts(interval.endTime);
+        if (!startParts || !endParts) {
+          return slots;
+        }
+
+        const [startHour, startMinute] = startParts;
+        const [endHour, endMinute] = endParts;
+        const startMinutes = startHour * 60 + startMinute;
+        const endMinutes = endHour * 60 + endMinute;
+
+        for (
+          let slotMinutes = startMinutes;
+          slotMinutes + 60 <= endMinutes;
+          slotMinutes += 60
+        ) {
+          const hour = Math.floor(slotMinutes / 60);
+          const minute = slotMinutes % 60;
+          const slotDate = buildSaoPauloDate(dateRaw, hour, minute);
         const iso = slotDate.toISOString();
-        return {
-          scheduledAt: iso,
-          available: !busySlots.has(iso) && slotDate.getTime() > Date.now(),
-        };
+          slots.push({
+            scheduledAt: iso,
+            available: !busySlots.has(iso) && slotDate.getTime() > Date.now(),
+          });
+        }
+
+        return slots;
       });
 
       return {
@@ -221,6 +337,18 @@ export async function registerAppointmentsRoutes(
         });
       }
 
+      const availableAt =
+        await options.appointmentRepository.isInstructorAvailableAt(
+          instructorId,
+          scheduledAt,
+        );
+
+      if (!availableAt) {
+        return reply.status(409).send({
+          message: 'O instrutor não está disponível neste horário.',
+        });
+      }
+
       const hasConflict = await options.appointmentRepository.hasConflict(
         instructorId,
         scheduledAt,
@@ -255,6 +383,20 @@ export async function registerAppointmentsRoutes(
           );
         } catch (error) {
           request.log.error({ err: error }, 'Failed to schedule appointment reminders.');
+        }
+      }
+
+      if (options.notificationRepository) {
+        try {
+          await options.notificationRepository.create({
+            userId: instructorId,
+            appointmentId: created.id,
+            type: 'appointment-requested',
+            title: 'Nova solicitação de aula',
+            message: `${authenticatedRequest.user.name} solicitou uma aula para ${formatNotificationDate(scheduledAt)}.`,
+          });
+        } catch (error) {
+          request.log.error({ err: error }, 'Failed to create appointment request notification.');
         }
       }
 
@@ -347,6 +489,30 @@ export async function registerAppointmentsRoutes(
         }
       }
 
+      if (options.notificationRepository) {
+        try {
+          const targetUserId =
+            authenticatedRequest.user.role === 'student'
+              ? updated.instructorId
+              : updated.studentId;
+          const statusNotification = STATUS_NOTIFICATION[updated.status];
+
+          await options.notificationRepository.create({
+            userId: targetUserId,
+            appointmentId: updated.id,
+            type: statusNotification.type,
+            title: statusNotification.title,
+            message: buildAppointmentStatusNotificationMessage(
+              authenticatedRequest.user.name,
+              updated.status,
+              updated.scheduledAt,
+            ),
+          });
+        } catch (error) {
+          request.log.error({ err: error }, 'Failed to create appointment status notification.');
+        }
+      }
+
       return {
         id: updated.id,
         studentId: updated.studentId,
@@ -360,4 +526,127 @@ export async function registerAppointmentsRoutes(
       };
     },
   );
+}
+
+function validateAvailabilityIntervals(
+  intervals: UpsertInstructorAvailabilityData[],
+) {
+  if (intervals.length > 28) {
+    return 'Informe no máximo 28 intervalos de disponibilidade.';
+  }
+
+  const byWeekday = new Map<number, Array<{ start: number; end: number }>>();
+
+  for (const interval of intervals) {
+    if (!Number.isInteger(interval.weekday) || interval.weekday < 0 || interval.weekday > 6) {
+      return 'Dia da semana inválido.';
+    }
+
+    const start = parseTimeToMinutes(interval.startTime);
+    const end = parseTimeToMinutes(interval.endTime);
+
+    if (start === null || end === null) {
+      return 'Use horários no formato HH:mm.';
+    }
+
+    if (end - start < 60) {
+      return 'Cada intervalo precisa ter pelo menos 1 hora.';
+    }
+
+    const current = byWeekday.get(interval.weekday) ?? [];
+    if (current.some((saved) => start < saved.end && end > saved.start)) {
+      return 'Os intervalos de um mesmo dia não podem se sobrepor.';
+    }
+
+    current.push({ start, end });
+    byWeekday.set(interval.weekday, current);
+  }
+
+  return null;
+}
+
+function parseTimeToMinutes(value: string) {
+  if (!/^\d{2}:\d{2}$/.test(value)) {
+    return null;
+  }
+
+    const parts = parseTimeParts(value);
+    if (!parts) {
+      return null;
+    }
+
+    const [hour, minute] = parts;
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+      return null;
+    }
+
+  return hour * 60 + minute;
+}
+
+function parseTimeParts(value: string): [number, number] | null {
+  const [hourRaw, minuteRaw] = value.split(':');
+  if (hourRaw === undefined || minuteRaw === undefined) {
+    return null;
+  }
+
+  return [Number(hourRaw), Number(minuteRaw)];
+}
+
+function getSaoPauloWeekday(date: Date) {
+  const weekday = new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    timeZone: 'America/Sao_Paulo',
+  }).format(date);
+  const weekdays: Record<string, number> = {
+    Sun: 0,
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6,
+  };
+
+  return weekdays[weekday] ?? date.getUTCDay();
+}
+
+function buildSaoPauloDate(dateRaw: string, hour: number, minute: number) {
+  const hourText = String(hour).padStart(2, '0');
+  const minuteText = String(minute).padStart(2, '0');
+
+  return new Date(`${dateRaw}T${hourText}:${minuteText}:00-03:00`);
+}
+
+function buildAppointmentStatusNotificationMessage(
+  actorName: string,
+  status: AppointmentStatus,
+  scheduledAt: Date,
+) {
+  const formattedDate = formatNotificationDate(scheduledAt);
+
+  if (status === 'confirmed') {
+    return `${actorName} confirmou a aula de ${formattedDate}.`;
+  }
+
+  if (status === 'rejected') {
+    return `${actorName} recusou a aula de ${formattedDate}.`;
+  }
+
+  if (status === 'cancelled') {
+    return `${actorName} cancelou a aula de ${formattedDate}.`;
+  }
+
+  if (status === 'completed') {
+    return `${actorName} marcou a aula de ${formattedDate} como concluída.`;
+  }
+
+  return `${actorName} atualizou a aula de ${formattedDate}.`;
+}
+
+function formatNotificationDate(date: Date) {
+  return date.toLocaleString('pt-BR', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+    timeZone: 'America/Sao_Paulo',
+  });
 }

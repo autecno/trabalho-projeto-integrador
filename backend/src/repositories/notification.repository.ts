@@ -1,11 +1,19 @@
 import { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { AppointmentReminderType } from '../queues/appointment-reminder.queue';
 
+export type NotificationType =
+  | AppointmentReminderType
+  | 'appointment-requested'
+  | 'appointment-confirmed'
+  | 'appointment-rejected'
+  | 'appointment-cancelled'
+  | 'appointment-completed';
+
 export interface Notification {
   id: number;
   userId: number;
   appointmentId: number;
-  type: AppointmentReminderType;
+  type: NotificationType;
   title: string;
   message: string;
   readAt: Date | null;
@@ -20,11 +28,20 @@ export interface CreateAppointmentReminderNotificationData {
   message: string;
 }
 
+export interface CreateNotificationData {
+  userId: number;
+  appointmentId: number;
+  type: NotificationType;
+  title: string;
+  message: string;
+}
+
 export interface NotificationRepository {
   ensureSchema(): Promise<void>;
   createAppointmentReminder(
     data: CreateAppointmentReminderNotificationData,
   ): Promise<Notification>;
+  create(data: CreateNotificationData): Promise<Notification>;
   listByUser(userId: number, limit?: number): Promise<Notification[]>;
   countUnreadByUser(userId: number): Promise<number>;
   markAsRead(id: number, userId: number): Promise<boolean>;
@@ -35,7 +52,7 @@ type NotificationRow = RowDataPacket & {
   id: number;
   user_id: number;
   appointment_id: number;
-  type: AppointmentReminderType;
+  type: NotificationType;
   title: string;
   message: string;
   read_at: Date | null;
@@ -62,6 +79,15 @@ export class MySqlNotificationRepository implements NotificationRepository {
         CONSTRAINT fk_notifications_appointment FOREIGN KEY (appointment_id) REFERENCES appointments(id)
       )
     `);
+
+    await this.pool.query(`
+      ALTER TABLE notifications
+      ADD INDEX idx_notifications_user_read_created (user_id, read_at, created_at)
+    `).catch((error: { code?: string }) => {
+      if (error.code !== 'ER_DUP_KEYNAME') {
+        throw error;
+      }
+    });
   }
 
   async createAppointmentReminder(
@@ -93,6 +119,33 @@ export class MySqlNotificationRepository implements NotificationRepository {
         LIMIT 1
       `,
       [data.appointmentId, data.reminderType],
+    );
+
+    const notification = rows[0];
+    if (!notification) {
+      throw new Error('Failed to retrieve created notification.');
+    }
+
+    return mapNotificationRow(notification);
+  }
+
+  async create(data: CreateNotificationData): Promise<Notification> {
+    const [result] = await this.pool.execute<ResultSetHeader>(
+      `
+        INSERT INTO notifications (user_id, appointment_id, type, title, message)
+        VALUES (?, ?, ?, ?, ?)
+      `,
+      [data.userId, data.appointmentId, data.type, data.title, data.message],
+    );
+
+    const [rows] = await this.pool.execute<NotificationRow[]>(
+      `
+        SELECT id, user_id, appointment_id, type, title, message, read_at, created_at
+        FROM notifications
+        WHERE id = ?
+        LIMIT 1
+      `,
+      [result.insertId],
     );
 
     const notification = rows[0];

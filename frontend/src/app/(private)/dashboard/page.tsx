@@ -52,6 +52,23 @@ type AvailabilitySlot = {
   available: boolean;
 };
 
+type AvailabilityInterval = {
+  id?: number;
+  weekday: number;
+  startTime: string;
+  endTime: string;
+};
+
+const WEEKDAYS = [
+  "Domingo",
+  "Segunda-feira",
+  "Terça-feira",
+  "Quarta-feira",
+  "Quinta-feira",
+  "Sexta-feira",
+  "Sábado",
+];
+
 export default function DashboardPage() {
   const token = getValidStoredToken();
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -68,7 +85,11 @@ export default function DashboardPage() {
   const [selectedDate, setSelectedDate] = useState("");
   const [availabilitySlots, setAvailabilitySlots] = useState<AvailabilitySlot[]>([]);
   const [selectedScheduledAt, setSelectedScheduledAt] = useState<string | null>(null);
+  const [availabilityIntervals, setAvailabilityIntervals] = useState<
+    AvailabilityInterval[]
+  >([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSavingAvailability, setIsSavingAvailability] = useState(false);
 
   useEffect(() => {
     if (!token) {
@@ -99,6 +120,19 @@ export default function DashboardPage() {
         );
 
         setProfile(profilePayload);
+
+        if (profilePayload.role === "instructor") {
+          const availabilityResponse = await apiFetch(
+            "/appointments/availability-settings",
+          );
+          const availabilityPayload = await readApiJson<{
+            intervals: AvailabilityInterval[];
+          }>(
+            availabilityResponse,
+            "Não foi possível carregar sua disponibilidade.",
+          );
+          setAvailabilityIntervals(availabilityPayload.intervals);
+        }
 
         const instructorsPayload = await readApiJson<Instructor[]>(
           instructorsResponse,
@@ -194,6 +228,74 @@ export default function DashboardPage() {
     );
 
     setAvailabilitySlots(payload.slots ?? []);
+  };
+
+  const addAvailabilityInterval = () => {
+    setAvailabilityIntervals((current) => [
+      ...current,
+      {
+        weekday: 1,
+        startTime: "08:00",
+        endTime: "18:00",
+      },
+    ]);
+  };
+
+  const updateAvailabilityInterval = (
+    index: number,
+    field: keyof AvailabilityInterval,
+    value: string,
+  ) => {
+    setAvailabilityIntervals((current) =>
+      current.map((interval, currentIndex) =>
+        currentIndex === index
+          ? {
+              ...interval,
+              [field]: field === "weekday" ? Number(value) : value,
+            }
+          : interval,
+      ),
+    );
+  };
+
+  const removeAvailabilityInterval = (index: number) => {
+    setAvailabilityIntervals((current) =>
+      current.filter((_, currentIndex) => currentIndex !== index),
+    );
+  };
+
+  const handleSaveAvailability = async () => {
+    try {
+      setIsSavingAvailability(true);
+      setActionMessage(null);
+
+      const response = await apiFetch("/appointments/availability-settings", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          intervals: availabilityIntervals.map((interval) => ({
+            weekday: interval.weekday,
+            startTime: interval.startTime,
+            endTime: interval.endTime,
+          })),
+        }),
+      });
+      const payload = await readApiJson<{ intervals: AvailabilityInterval[] }>(
+        response,
+        "Não foi possível salvar sua disponibilidade.",
+      );
+
+      setAvailabilityIntervals(payload.intervals);
+      setActionMessage("Disponibilidade salva com sucesso.");
+    } catch (err) {
+      setActionMessage(
+        getFriendlyErrorMessage(err, "Falha ao salvar disponibilidade."),
+      );
+    } finally {
+      setIsSavingAvailability(false);
+    }
   };
 
   const handleScheduleAppointment = async () => {
@@ -384,6 +486,98 @@ export default function DashboardPage() {
             <Button onClick={handleScheduleAppointment} disabled={isSubmitting}>
               {isSubmitting ? "Confirmando..." : "Confirmar agendamento"}
             </Button>
+          </Card>
+        )}
+
+        {profile?.role === "instructor" && (
+          <Card className="space-y-5">
+            <div className="space-y-2">
+              <Badge>Disponibilidade</Badge>
+              <h2 className="text-2xl font-bold text-[var(--brand-blue)]">
+                Informe quando você pode receber aulas
+              </h2>
+              <p className="text-sm leading-6 text-slate-600">
+                Os alunos verão horários de 1 em 1 hora dentro dos intervalos que você
+                cadastrar.
+              </p>
+            </div>
+
+            <div className="grid gap-3">
+              {availabilityIntervals.length === 0 && (
+                <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  Nenhum intervalo cadastrado. Adicione pelo menos um período disponível.
+                </p>
+              )}
+
+              {availabilityIntervals.map((interval, index) => (
+                <div
+                  key={`${interval.weekday}-${interval.startTime}-${interval.endTime}-${index}`}
+                  className="grid gap-3 rounded-2xl border border-[var(--border-soft)] bg-white p-4 md:grid-cols-[1.3fr_1fr_1fr_auto]"
+                >
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">
+                      Dia da semana
+                    </label>
+                    <select
+                      className="h-10 w-full rounded-md border border-[var(--border-soft)] bg-white px-3 text-sm"
+                      value={interval.weekday}
+                      onChange={(event) =>
+                        updateAvailabilityInterval(index, "weekday", event.target.value)
+                      }
+                    >
+                      {WEEKDAYS.map((weekday, weekdayIndex) => (
+                        <option key={weekday} value={weekdayIndex}>
+                          {weekday}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">Início</label>
+                    <Input
+                      type="time"
+                      value={interval.startTime}
+                      onChange={(event) =>
+                        updateAvailabilityInterval(index, "startTime", event.target.value)
+                      }
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700">Fim</label>
+                    <Input
+                      type="time"
+                      value={interval.endTime}
+                      onChange={(event) =>
+                        updateAvailabilityInterval(index, "endTime", event.target.value)
+                      }
+                    />
+                  </div>
+
+                  <div className="flex items-end">
+                    <Button
+                      variant="outline"
+                      onClick={() => removeAvailabilityInterval(index)}
+                    >
+                      Remover
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={addAvailabilityInterval}>
+                Adicionar intervalo
+              </Button>
+              <Button
+                onClick={handleSaveAvailability}
+                disabled={isSavingAvailability}
+              >
+                {isSavingAvailability ? "Salvando..." : "Salvar disponibilidade"}
+              </Button>
+            </div>
           </Card>
         )}
 
