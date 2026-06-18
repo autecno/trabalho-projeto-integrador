@@ -1,12 +1,17 @@
 FROM node:20-alpine
 
 WORKDIR /app
+RUN chown node:node /app
+USER node
 
-COPY package*.json ./
+COPY --chown=node:node package*.json ./
 
-RUN npm install
+RUN npm ci
 
-COPY . .
+COPY --chown=node:node next.config.ts postcss.config.mjs tsconfig.json ./
+COPY --chown=node:node src ./src
+COPY --chown=node:node public ./public
+COPY --chown=node:node scripts ./scripts
 
 EXPOSE 3000
 

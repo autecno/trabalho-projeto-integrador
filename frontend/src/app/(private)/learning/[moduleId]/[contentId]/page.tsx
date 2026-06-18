@@ -129,7 +129,6 @@ export default function ContentPage() {
           {content.type === 'text' && (
             <Card>
               <div className="space-y-4">
-                <h2 className="text-lg font-semibold text-slate-900">Conteúdo em texto</h2>
                 <div className="space-y-4 text-slate-700 whitespace-pre-line">
                   {content.body}
                 </div>
