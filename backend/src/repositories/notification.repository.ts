@@ -104,15 +104,17 @@ export class MySqlNotificationRepository implements NotificationRepository {
   }
 
   async listByUser(userId: number, limit = 10): Promise<Notification[]> {
+    const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 50);
+
     const [rows] = await this.pool.execute<NotificationRow[]>(
       `
         SELECT id, user_id, appointment_id, type, title, message, read_at, created_at
         FROM notifications
         WHERE user_id = ?
         ORDER BY created_at DESC
-        LIMIT ?
+        LIMIT ${safeLimit}
       `,
-      [userId, limit],
+      [userId],
     );
 
     return rows.map(mapNotificationRow);
