@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Button } from './button';
-import { Card } from './card';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 
 export interface QuizQuestion {
   id: number;
