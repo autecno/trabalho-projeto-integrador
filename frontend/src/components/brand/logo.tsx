@@ -25,6 +25,7 @@ export function Logo({ withLink = true, className, compact = false }: LogoProps)
           width={130}
           height={34}
           priority
+          style={{ height: "auto" }}
         />
       )}
     </div>
