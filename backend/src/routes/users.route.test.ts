@@ -7,7 +7,9 @@ import {
   AppointmentStatus,
   AppointmentWithNames,
   CreateAppointmentData,
+  InstructorAvailability,
   UpdateAppointmentStatusData,
+  UpsertInstructorAvailabilityData,
 } from '../repositories/appointment.repository';
 import {
   CreateUserData,
@@ -138,9 +140,31 @@ class InMemoryAppointmentRepository implements AppointmentRepository {
     return this.appointments.some(
       (appointment) =>
         appointment.instructorId === instructorId &&
-        appointment.scheduledAt.getTime() === scheduledAt.getTime() &&
+        Math.abs(appointment.scheduledAt.getTime() - scheduledAt.getTime()) <
+          60 * 60 * 1000 &&
         ['pending', 'confirmed'].includes(appointment.status),
     );
+  }
+
+  async listAvailabilityByInstructor(): Promise<InstructorAvailability[]> {
+    return [];
+  }
+
+  async replaceAvailability(
+    instructorId: number,
+    intervals: UpsertInstructorAvailabilityData[],
+  ): Promise<InstructorAvailability[]> {
+    return intervals.map((interval, index) => ({
+      id: index + 1,
+      instructorId,
+      weekday: interval.weekday,
+      startTime: interval.startTime,
+      endTime: interval.endTime,
+    }));
+  }
+
+  async isInstructorAvailableAt(): Promise<boolean> {
+    return true;
   }
 
   async updateStatus(
