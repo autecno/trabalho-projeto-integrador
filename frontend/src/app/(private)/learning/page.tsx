@@ -12,7 +12,10 @@ type ModuleSummary = {
   title: string;
   description: string;
   videosCount: number;
+  contentCount: number;
+  completedContentCount: number;
   progressPercent: number;
+  quizCompleted: boolean;
 };
 
 export default function LearningPage() {
@@ -22,7 +25,7 @@ export default function LearningPage() {
   const [loading, setLoading] = useState(Boolean(token));
   const authError = token
     ? null
-    : 'Você precisa fazer login para acessar os conteúdos.';
+    : "Voce precisa fazer login para acessar os conteudos.";
 
   useEffect(() => {
     if (!token) {
@@ -37,29 +40,30 @@ export default function LearningPage() {
         const response = await apiFetch("/learning/modules");
         const payload = await readApiJson<ModuleSummary[]>(
           response,
-          'Não foi possível carregar os módulos.',
+          "Nao foi possivel carregar os modulos.",
         );
 
         setModules(payload);
       } catch (err) {
-        setError(
-          getFriendlyErrorMessage(err, 'Erro ao carregar os módulos.'),
-        );
+        setError(getFriendlyErrorMessage(err, "Erro ao carregar os modulos."));
       } finally {
         setLoading(false);
       }
     };
 
-    loadModules();
+    void loadModules();
   }, [token]);
 
   return (
     <main className="mx-auto min-h-screen max-w-6xl px-4 py-28">
       <div className="mb-8 flex flex-col gap-4">
         <div>
-          <h1 className="text-3xl font-semibold text-slate-900">Conteúdos para alunos</h1>
+          <h1 className="text-3xl font-semibold text-slate-900">
+            Conteudos para alunos
+          </h1>
           <p className="mt-2 text-slate-600">
-            Acesse vídeos, resumos e simulados de cada módulo para estudar para a prova do DETRAN.
+            Acesse videos, resumos e simulados de cada modulo para estudar para a
+            prova do DETRAN.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -69,7 +73,7 @@ export default function LearningPage() {
         </div>
       </div>
 
-      {loading && <p>Carregando módulos...</p>}
+      {loading && <p>Carregando modulos...</p>}
       {(error || authError) && <p className="text-rose-600">{error ?? authError}</p>}
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -77,11 +81,13 @@ export default function LearningPage() {
           <Card key={module.id}>
             <div className="flex items-center justify-between gap-4">
               <div>
-                <h2 className="text-xl font-semibold text-slate-900">{module.title}</h2>
+                <h2 className="text-xl font-semibold text-slate-900">
+                  {module.title}
+                </h2>
                 <p className="mt-2 text-slate-600">{module.description}</p>
               </div>
               <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm text-slate-700">
-                {module.videosCount} vídeos
+                {module.completedContentCount}/{module.contentCount} conteudos
               </span>
             </div>
 
@@ -96,11 +102,14 @@ export default function LearningPage() {
                   style={{ width: `${module.progressPercent}%` }}
                 />
               </div>
+              <p className="mt-2 text-xs text-slate-500">
+                {module.quizCompleted ? "Prova finalizada" : "Prova pendente"}
+              </p>
             </div>
 
             <div className="mt-6 flex justify-end">
               <Link href={`/learning/${module.id}`}>
-                <Button variant="default">Ver módulo</Button>
+                <Button variant="default">Ver modulo</Button>
               </Link>
             </div>
           </Card>

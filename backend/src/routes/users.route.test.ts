@@ -30,6 +30,21 @@ class InMemoryLearningRepository implements LearningRepository {
     return null;
   }
   async recordContentProgress() {}
+  async getModuleStatus() {
+    return null;
+  }
+  async getStudentLegislationProgress() {
+    return {
+      id: 1,
+      title: 'Legislacao',
+      description: 'Modulo de legislacao',
+      videosCount: 0,
+      contentCount: 0,
+      completedContentCount: 0,
+      progressPercent: 0,
+      quizCompleted: false,
+    };
+  }
   async listQuizQuestionsByModule() {
     return [];
   }
@@ -38,6 +53,16 @@ class InMemoryLearningRepository implements LearningRepository {
       total: 0,
       correct: 0,
       results: [],
+    };
+  }
+  async recordQuizAttempt() {
+    return {
+      totalQuestions: 0,
+      correctAnswers: 0,
+      wrongAnswers: 0,
+      percentageCorrect: 0,
+      passed: false,
+      completedAt: new Date(),
     };
   }
 }

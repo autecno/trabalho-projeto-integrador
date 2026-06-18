@@ -9,6 +9,7 @@ import {
   AppointmentWithNames,
 } from '../repositories/appointment.repository';
 import { UserRepository } from '../repositories/user.repository';
+import { LearningRepository } from '../repositories/learning.repository';
 import {
   AppointmentReminderQueue,
   removeAppointmentReminderJobs,
@@ -23,6 +24,7 @@ type RegisterAppointmentsRoutesOptions = {
   jwtSecret: string;
   userRepository: UserRepository;
   appointmentRepository: AppointmentRepository;
+  learningRepository: LearningRepository;
   notificationRepository?: NotificationRepository;
   appointmentRatingRepository: AppointmentRatingRepository;
   appointmentReminderQueue?: AppointmentReminderQueue;
@@ -128,8 +130,28 @@ export async function registerAppointmentsRoutes(
         counterpartRatingSummaries.map((summary) => [summary.userId, summary]),
       );
 
+      const studentLegislationProgressById = new Map<
+        number,
+        Awaited<ReturnType<LearningRepository['getStudentLegislationProgress']>>
+      >();
+      if (!isStudent) {
+        await Promise.all(
+          [...new Set(appointments.map((appointment) => appointment.studentId))].map(
+            async (studentId) => {
+              studentLegislationProgressById.set(
+                studentId,
+                await options.learningRepository.getStudentLegislationProgress(studentId),
+              );
+            },
+          ),
+        );
+      }
+
       return appointments.map((appointment) => ({
         ...buildAppointmentResponse(appointment),
+        studentLegislationProgress: isStudent
+          ? null
+          : studentLegislationProgressById.get(appointment.studentId) ?? null,
         counterpartAverageRating:
           counterpartRatingSummaryByUserId.get(
             isStudent ? appointment.instructorId : appointment.studentId,
