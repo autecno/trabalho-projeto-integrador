@@ -21,7 +21,7 @@ type BuildAppOptions = {
   appointmentRepository: AppointmentRepository;
   learningRepository: LearningRepository;
   notificationRepository?: NotificationRepository;
-  appointmentRatingRepository: AppointmentRatingRepository;
+  appointmentRatingRepository?: AppointmentRatingRepository;
   jwtSecret?: string;
   appointmentReminderQueue?: AppointmentReminderQueue;
 };
@@ -29,6 +29,8 @@ type BuildAppOptions = {
 export async function buildApp(options: BuildAppOptions) {
   const fastify = Fastify({ logger: true });
   const jwtSecret = options.jwtSecret ?? process.env.JWT_SECRET ?? 'supersecretjwt';
+  const appointmentRatingRepository =
+    options.appointmentRatingRepository ?? inMemoryEmptyAppointmentRatingRepository;
 
   await fastify.register(cors, {
     origin: '*',
@@ -60,13 +62,13 @@ export async function buildApp(options: BuildAppOptions) {
   await registerInstructorRoutes(fastify, {
     jwtSecret,
     userRepository: options.userRepository,
-    appointmentRatingRepository: options.appointmentRatingRepository,
+    appointmentRatingRepository,
   });
   await registerAppointmentsRoutes(fastify, {
     jwtSecret,
     userRepository: options.userRepository,
     appointmentRepository: options.appointmentRepository,
-    appointmentRatingRepository: options.appointmentRatingRepository,
+    appointmentRatingRepository,
     ...(options.notificationRepository
       ? { notificationRepository: options.notificationRepository }
       : {}),
@@ -80,3 +82,19 @@ export async function buildApp(options: BuildAppOptions) {
 
   return fastify;
 }
+
+const inMemoryEmptyAppointmentRatingRepository: AppointmentRatingRepository = {
+  async ensureSchema() {},
+  async create() {
+    throw new Error('Appointment ratings repository is not configured.');
+  },
+  async findByAppointmentAndEvaluator() {
+    return null;
+  },
+  async listByAppointmentIdsForEvaluator() {
+    return [];
+  },
+  async listReceivedSummariesByUserIds() {
+    return [];
+  },
+};

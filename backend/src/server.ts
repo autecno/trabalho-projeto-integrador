@@ -46,7 +46,6 @@ async function start() {
       userRepository,
       appointmentRepository,
       learningRepository,
-      notificationRepository,
       appointmentRatingRepository,
       notificationRepository,
       appointmentReminderQueue,
