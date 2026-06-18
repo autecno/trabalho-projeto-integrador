@@ -97,5 +97,5 @@ function toBase64Url(value: string) {
     .toString("base64")
     .replaceAll("+", "-")
     .replaceAll("/", "_")
-    .replace(/=+$/g, "");
+    .replaceAll("=", "");
 }
