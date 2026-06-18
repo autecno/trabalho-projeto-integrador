@@ -7,6 +7,8 @@
   --brand-blue: #152946;
   --brand-yellow: #f9b52e;
   --border-soft: rgba(21, 41, 70, 0.15);
+  --font-geist-sans: Arial, Helvetica, sans-serif;
+  --font-geist-mono: "Courier New", Courier, monospace;
 }
 
 @theme inline {

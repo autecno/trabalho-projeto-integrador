@@ -1,0 +1,145 @@
+name: CI/CD
+
+on:
+  pull_request:
+    branches:
+      - teste
+      - testes
+  push:
+    branches:
+      - teste
+      - testes
+  workflow_dispatch:
+    inputs:
+      test_branch:
+        description: Branch de teste que sera promovida
+        required: true
+        default: testes
+        type: choice
+        options:
+          - testes
+          - teste
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-cd-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: 22
+  PRODUCTION_BRANCH: production
+  MAIN_BRANCH: main
+
+jobs:
+  validate:
+    name: Validar projeto
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Baixar codigo
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Instalar dependencias do backend
+        working-directory: backend
+        run: npm ci
+
+      - name: Rodar testes do backend
+        working-directory: backend
+        run: npm test
+
+      - name: Instalar dependencias do frontend
+        working-directory: frontend
+        run: npm ci
+
+      - name: Rodar testes do frontend
+        working-directory: frontend
+        run: npm test
+
+      - name: Validar frontend
+        working-directory: frontend
+        run: |
+          npm run lint
+          npm run build
+
+  promote:
+    name: Promover teste para production e main
+    needs: validate
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Validar segredos de Git
+        env:
+          CI_PUSH_TOKEN: ${{ secrets.CI_PUSH_TOKEN }}
+          CI_GIT_USER_NAME: ${{ secrets.CI_GIT_USER_NAME }}
+          CI_GIT_USER_EMAIL: ${{ secrets.CI_GIT_USER_EMAIL }}
+        run: |
+          if [ -z "${CI_PUSH_TOKEN}" ]; then
+            echo "::error::Configure o secret CI_PUSH_TOKEN com um token da conta que deve fazer os commits."
+            exit 1
+          fi
+
+          if [ -z "${CI_GIT_USER_NAME}" ]; then
+            echo "::error::Configure o secret CI_GIT_USER_NAME com o nome da conta que deve assinar os commits."
+            exit 1
+          fi
+
+          if [ -z "${CI_GIT_USER_EMAIL}" ]; then
+            echo "::error::Configure o secret CI_GIT_USER_EMAIL com o e-mail da conta que deve assinar os commits."
+            exit 1
+          fi
+
+      - name: Baixar historico completo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.CI_PUSH_TOKEN }}
+
+      - name: Configurar identidade do commit
+        run: |
+          git config user.name "${{ secrets.CI_GIT_USER_NAME }}"
+          git config user.email "${{ secrets.CI_GIT_USER_EMAIL }}"
+
+      - name: Promover para production
+        run: |
+          set -euo pipefail
+
+          TEST_BRANCH="${GITHUB_REF_NAME}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TEST_BRANCH="${{ inputs.test_branch }}"
+          fi
+
+          git fetch origin "${TEST_BRANCH}" "${PRODUCTION_BRANCH}" "${MAIN_BRANCH}"
+          git checkout "${PRODUCTION_BRANCH}"
+          git pull --ff-only origin "${PRODUCTION_BRANCH}"
+
+          git merge --no-ff "origin/${TEST_BRANCH}" \
+            -m "chore(ci): promover ${TEST_BRANCH} para production"
+
+          git push origin "${PRODUCTION_BRANCH}"
+
+      - name: Sincronizar production com main
+        run: |
+          set -euo pipefail
+
+          git fetch origin "${PRODUCTION_BRANCH}" "${MAIN_BRANCH}"
+          git checkout "${MAIN_BRANCH}"
+          git pull --ff-only origin "${MAIN_BRANCH}"
+
+          git merge --no-ff "origin/${PRODUCTION_BRANCH}" \
+            -m "chore(ci): sincronizar production com main"
+
+          git push origin "${MAIN_BRANCH}"

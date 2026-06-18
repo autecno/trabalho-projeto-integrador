@@ -5,8 +5,8 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { getApiUrl } from "@/lib/api";
-import { getStoredToken } from "@/lib/auth";
+import { apiFetch, getFriendlyErrorMessage, readApiJson } from "@/lib/api";
+import { getValidStoredToken } from "@/lib/auth";
 
 type ContentDetail = {
   id: number;
@@ -26,13 +26,19 @@ function getYoutubeEmbedUrl(url: string) {
 export default function ContentPage() {
   const params = useParams<{ moduleId: string; contentId: string }>();
   const router = useRouter();
-  const token = getStoredToken();
+  const token = getValidStoredToken();
   const [content, setContent] = useState<ContentDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const moduleId = Number(params.moduleId);
   const contentId = Number(params.contentId);
+  const invalidParams =
+    !Number.isFinite(moduleId) ||
+    moduleId <= 0 ||
+    !Number.isFinite(contentId) ||
+    contentId <= 0;
+  const validationError = invalidParams ? 'Parâmetros inválidos.' : null;
 
   useEffect(() => {
     if (!token) {
@@ -40,14 +46,7 @@ export default function ContentPage() {
       return;
     }
 
-    if (
-      !Number.isFinite(moduleId) ||
-      moduleId <= 0 ||
-      !Number.isFinite(contentId) ||
-      contentId <= 0
-    ) {
-      setError('Parâmetros inválidos.');
-      setLoading(false);
+    if (invalidParams) {
       return;
     }
 
@@ -56,36 +55,30 @@ export default function ContentPage() {
       setError(null);
 
       try {
-        const response = await fetch(`${getApiUrl()}/learning/contents/${contentId}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-
-        const payload = await response.json();
-        if (!response.ok) {
-          throw new Error(payload.message || 'Não foi possível carregar o conteúdo.');
-        }
+        const response = await apiFetch(`/learning/contents/${contentId}`);
+        const payload = await readApiJson<ContentDetail>(
+          response,
+          'Não foi possível carregar o conteúdo.',
+        );
 
         setContent(payload);
 
         if (payload.type === 'video') {
-          await fetch(`${getApiUrl()}/learning/contents/${contentId}/progress`, {
+          await apiFetch(`/learning/contents/${contentId}/progress`, {
             method: 'POST',
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
           });
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Falha ao carregar o conteúdo.');
+        setError(
+          getFriendlyErrorMessage(err, 'Falha ao carregar o conteúdo.'),
+        );
       } finally {
         setLoading(false);
       }
     };
 
     loadContent();
-  }, [token, contentId, router]);
+  }, [token, contentId, invalidParams, router]);
 
   const embedUrl = content?.youtubeUrl ? getYoutubeEmbedUrl(content.youtubeUrl) : null;
 
@@ -107,7 +100,9 @@ export default function ContentPage() {
       </div>
 
       {loading && <p>Carregando conteúdo...</p>}
-      {error && <p className="text-rose-600">{error}</p>}
+      {(error || validationError) && (
+        <p className="text-rose-600">{error ?? validationError}</p>
+      )}
 
       {content && (
         <div className="space-y-6">

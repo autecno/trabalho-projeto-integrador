@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { getApiUrl } from "@/lib/api";
+import { getApiUrl, getFriendlyErrorMessage, readApiJson } from "@/lib/api";
 import { setStoredToken } from "@/lib/auth";
 
 type LoginFormData = {
@@ -18,7 +18,12 @@ export function LoginForm() {
   const router = useRouter();
   const [data, setData] = useState<LoginFormData>({ email: "", password: "" });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(
+    typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("session") === "expired"
+      ? "Sua sessão expirou. Entre novamente para continuar."
+      : null,
+  );
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -32,15 +37,20 @@ export function LoginForm() {
         body: JSON.stringify(data),
       });
 
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.message || "Não foi possível fazer login.");
-      }
+      const payload = await readApiJson<{ token: string }>(
+        response,
+        "Não foi possível fazer login. Confira seu e-mail e senha.",
+      );
 
       setStoredToken(payload.token);
       router.push("/dashboard");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao fazer login.");
+      setError(
+        getFriendlyErrorMessage(
+          err,
+          "Não foi possível fazer login. Confira sua conexão e tente novamente.",
+        ),
+      );
     } finally {
       setIsSubmitting(false);
     }

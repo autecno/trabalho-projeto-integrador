@@ -7,7 +7,7 @@
     "dev": "nodemon --watch src --ext ts --exec ts-node --files src/server.ts",
     "worker": "ts-node --files src/workers/appointment-reminder.worker.ts",
     "start": "ts-node --files src/server.ts",
-    "test": "node --require ts-node/register --test src/routes/users.route.test.ts"
+    "test": "node --require ts-node/register --test \"src/**/*.test.ts\""
   },
   "repository": {
     "type": "git",
