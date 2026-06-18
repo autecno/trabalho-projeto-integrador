@@ -1,86 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildApp } from '../app';
-import { Appointment, AppointmentRepository, AppointmentStatus, AppointmentWithNames, CreateAppointmentData, InstructorAvailability, UpdateAppointmentStatusData, UpsertInstructorAvailabilityData } from '../repositories/appointment.repository';
-import { UserRepository, CreateUserData, User } from '../repositories/user.repository';
+import { User } from '../repositories/user.repository';
 import { LearningRepository, LearningContentType, QuizAnswerSubmission, QuizSubmissionResult } from '../repositories/learning.repository';
 import { generateToken } from '../services/jwt.service';
-
-class InMemoryUserRepository implements UserRepository {
-  private users: User[] = [];
-  private sequence = 1;
-
-  async create(data: CreateUserData): Promise<User> {
-    const user: User = {
-      id: this.sequence++,
-      name: data.name,
-      email: data.email,
-      passwordHash: data.passwordHash,
-      role: data.role,
-      createdAt: new Date(),
-    };
-
-    this.users.push(user);
-    return user;
-  }
-
-  async findByEmail(email: string): Promise<User | null> {
-    return this.users.find((user) => user.email === email) ?? null;
-  }
-
-  async findById(id: number): Promise<User | null> {
-    return this.users.find((user) => user.id === id) ?? null;
-  }
-
-  async listInstructors() {
-    return this.users
-      .filter((user) => user.role === 'instructor')
-      .map((user) => ({ id: user.id, name: user.name }));
-  }
-}
-
-class InMemoryAppointmentRepository implements AppointmentRepository {
-  async ensureSchema() {}
-  async create(data: CreateAppointmentData): Promise<Appointment> {
-    throw new Error('Not implemented');
-  }
-  async findById(id: number): Promise<AppointmentWithNames | null> {
-    return null;
-  }
-  async findNextByStudent(studentId: number, referenceDate: Date): Promise<AppointmentWithNames | null> {
-    return null;
-  }
-  async listByStudent(studentId: number): Promise<AppointmentWithNames[]> {
-    return [];
-  }
-  async listByInstructor(instructorId: number): Promise<AppointmentWithNames[]> {
-    return [];
-  }
-  async listForInstructorOnDate(instructorId: number, dateStart: Date, dateEnd: Date): Promise<Appointment[]> {
-    return [];
-  }
-  async hasConflict(instructorId: number, scheduledAt: Date): Promise<boolean> {
-    return false;
-  }
-  async listAvailabilityByInstructor(): Promise<InstructorAvailability[]> {
-    return [];
-  }
-  async replaceAvailability(instructorId: number, intervals: UpsertInstructorAvailabilityData[]): Promise<InstructorAvailability[]> {
-    return intervals.map((interval, index) => ({
-      id: index + 1,
-      instructorId,
-      weekday: interval.weekday,
-      startTime: interval.startTime,
-      endTime: interval.endTime,
-    }));
-  }
-  async isInstructorAvailableAt(): Promise<boolean> {
-    return true;
-  }
-  async updateStatus(id: number, data: UpdateAppointmentStatusData): Promise<AppointmentWithNames | null> {
-    return null;
-  }
-}
+import { InMemoryAppointmentRepository, InMemoryUserRepository } from './test-helpers';
 
 class InMemoryLearningRepository implements LearningRepository {
   private moduleSequence = 1;
@@ -302,7 +226,7 @@ async function createAppWithRepositories(options?: { jwtSecret?: string }) {
   learningRepository.addContent(module.id, 'text', 'Resumo da legislação', null, 'Resumo', 'Corpo do texto');
   learningRepository.addQuestion(module.id, 'Qual sinal é obrigatório?', ['Placa A', 'Placa B'], 0, 'Porque A é correto');
 
-  const appointmentRepository = new InMemoryAppointmentRepository();
+  const appointmentRepository = new InMemoryAppointmentRepository(userRepository);
 
   const app = await buildApp({
     userRepository,
@@ -435,4 +359,3 @@ test('GET /learning/modules/:moduleId/quiz returns questions without correct ans
 
   await app.close();
 });
-

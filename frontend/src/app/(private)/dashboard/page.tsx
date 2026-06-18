@@ -5,8 +5,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { StarRating } from "@/components/ui/star-rating";
 import { apiFetch, getFriendlyErrorMessage, readApiJson } from "@/lib/api";
 import { getValidStoredToken } from "@/lib/auth";
+import { cn } from "@/lib/utils";
 
 type Profile = {
   id: number;
@@ -18,6 +20,8 @@ type Profile = {
 type Instructor = {
   id: number;
   name: string;
+  averageRating: number | null;
+  totalRatings: number;
 };
 
 type AppointmentStatus =
@@ -37,6 +41,10 @@ type Appointment = {
   status: AppointmentStatus;
   notes: string | null;
   cancellationReason: string | null;
+  counterpartAverageRating: number | null;
+  counterpartTotalRatings: number;
+  currentUserRatingScore: number | null;
+  canCurrentUserRate: boolean;
 };
 
 type NextAppointment = {
@@ -90,6 +98,12 @@ export default function DashboardPage() {
   >([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSavingAvailability, setIsSavingAvailability] = useState(false);
+  const [selectedRatings, setSelectedRatings] = useState<Record<number, number>>({});
+  const [ratingAppointmentId, setRatingAppointmentId] = useState<number | null>(null);
+
+  const isStudent = profile?.role === "student";
+  const selectedInstructor =
+    instructors.find((instructor) => instructor.id === selectedInstructorId) ?? null;
 
   useEffect(() => {
     if (!token) {
@@ -106,8 +120,7 @@ export default function DashboardPage() {
           instructorsResponse,
           appointmentsResponse,
           nextAppointmentResponse,
-        ] =
-          await Promise.all([
+        ] = await Promise.all([
           apiFetch("/profile"),
           apiFetch("/instructors"),
           apiFetch("/appointments"),
@@ -118,7 +131,6 @@ export default function DashboardPage() {
           profileResponse,
           "Não foi possível carregar seu perfil.",
         );
-
         setProfile(profilePayload);
 
         if (profilePayload.role === "instructor") {
@@ -138,7 +150,6 @@ export default function DashboardPage() {
           instructorsResponse,
           "Não foi possível listar os instrutores.",
         );
-
         setInstructors(instructorsPayload);
 
         const appointmentsPayload = await readApiJson<Appointment[]>(
@@ -153,26 +164,32 @@ export default function DashboardPage() {
         setNextAppointment(nextAppointmentPayload.nextAppointment ?? null);
       } catch (err) {
         setError(
-          getFriendlyErrorMessage(
-            err,
-            "Falha ao carregar os dados do dashboard.",
-          ),
+          getFriendlyErrorMessage(err, "Falha ao carregar os dados do dashboard."),
         );
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchDashboardData();
+    void fetchDashboardData();
   }, [token]);
-
-  const isStudent = profile?.role === "student";
 
   const formatDateTime = (isoDate: string) =>
     new Date(isoDate).toLocaleString("pt-BR", {
       dateStyle: "short",
       timeStyle: "short",
     });
+
+  const formatRatingValue = (value: number) => value.toFixed(1).replace(".", ",");
+
+  const formatRatingSummary = (averageRating: number | null, totalRatings: number) => {
+    if (averageRating === null || totalRatings === 0) {
+      return "Sem avaliações ainda";
+    }
+
+    const ratingLabel = totalRatings === 1 ? "avaliação" : "avaliações";
+    return `${formatRatingValue(averageRating)}/5 (${totalRatings} ${ratingLabel})`;
+  };
 
   const statusLabel: Record<AppointmentStatus, string> = {
     pending: "Pendente",
@@ -192,8 +209,20 @@ export default function DashboardPage() {
     return "border-rose-200 bg-rose-50 text-rose-700";
   };
 
+  const refreshInstructors = async () => {
+    if (!token) return;
+
+    const response = await apiFetch("/instructors");
+    const payload = await readApiJson<Instructor[]>(
+      response,
+      "Não foi possível atualizar os instrutores.",
+    );
+    setInstructors(payload);
+  };
+
   const refreshAppointments = async () => {
     if (!token) return;
+
     const response = await apiFetch("/appointments");
     const payload = await readApiJson<Appointment[]>(
       response,
@@ -204,6 +233,7 @@ export default function DashboardPage() {
 
   const refreshNextAppointment = async () => {
     if (!token) return;
+
     const response = await apiFetch("/appointments/next");
     const payload = await readApiJson<{ nextAppointment: NextAppointment }>(
       response,
@@ -214,6 +244,7 @@ export default function DashboardPage() {
 
   const loadAvailability = async (instructorId: number, date: string) => {
     if (!token) return;
+
     setAvailabilitySlots([]);
     setSelectedScheduledAt(null);
 
@@ -228,6 +259,18 @@ export default function DashboardPage() {
     );
 
     setAvailabilitySlots(payload.slots ?? []);
+  };
+
+  const handleSelectInstructor = (instructorId: number) => {
+    setSelectedInstructorId(instructorId);
+
+    if (selectedDate) {
+      void loadAvailability(instructorId, selectedDate);
+      return;
+    }
+
+    setAvailabilitySlots([]);
+    setSelectedScheduledAt(null);
   };
 
   const addAvailabilityInterval = () => {
@@ -323,6 +366,7 @@ export default function DashboardPage() {
       setActionMessage("Agendamento realizado com sucesso.");
       await refreshAppointments();
       await refreshNextAppointment();
+
       if (selectedDate) {
         await loadAvailability(selectedInstructorId, selectedDate);
       }
@@ -343,16 +387,14 @@ export default function DashboardPage() {
 
     try {
       setActionMessage(null);
-      const response = await apiFetch(
-        `/appointments/${appointmentId}/status`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ status }),
+
+      const response = await apiFetch(`/appointments/${appointmentId}/status`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
         },
-      );
+        body: JSON.stringify({ status }),
+      });
       await readApiJson(response, "Não foi possível atualizar o status.");
 
       setActionMessage("Status atualizado com sucesso.");
@@ -362,6 +404,51 @@ export default function DashboardPage() {
       setActionMessage(
         getFriendlyErrorMessage(err, "Falha ao atualizar status."),
       );
+    }
+  };
+
+  const handleRateAppointment = async (appointmentId: number) => {
+    if (!token) return;
+
+    const selectedScore = selectedRatings[appointmentId];
+    if (!selectedScore) {
+      setActionMessage("Selecione uma nota de 1 a 5 estrelas para enviar a avaliação.");
+      return;
+    }
+
+    try {
+      setRatingAppointmentId(appointmentId);
+      setActionMessage(null);
+
+      const response = await apiFetch(`/appointments/${appointmentId}/rating`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          score: selectedScore,
+        }),
+      });
+      await readApiJson(response, "Não foi possível enviar a avaliação.");
+
+      setActionMessage("Avaliação enviada com sucesso.");
+      setSelectedRatings((current) => {
+        const next = { ...current };
+        delete next[appointmentId];
+        return next;
+      });
+
+      await refreshAppointments();
+
+      if (isStudent) {
+        await refreshInstructors();
+      }
+    } catch (err) {
+      setActionMessage(
+        getFriendlyErrorMessage(err, "Falha ao enviar avaliação."),
+      );
+    } finally {
+      setRatingAppointmentId(null);
     }
   };
 
@@ -405,41 +492,80 @@ export default function DashboardPage() {
         {isStudent && (
           <Card className="space-y-5">
             <div className="space-y-2">
-              <Badge>Novo agendamento</Badge>
+              <Badge>Instrutores</Badge>
               <h2 className="text-2xl font-bold text-[var(--brand-blue)]">
-                Escolha instrutor, data e horário
+                Escolha um instrutor
               </h2>
               <p className="text-sm leading-6 text-slate-600">
-                Selecione um instrutor e veja os horários livres para confirmar sua aula.
+                Veja a média de avaliação antes de selecionar quem vai ministrar sua aula.
               </p>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Instrutor</label>
-                <select
-                  className="h-10 w-full rounded-md border border-[var(--border-soft)] bg-white px-3 text-sm"
-                  value={selectedInstructorId ?? ""}
-                  onChange={(event) => {
-                    const nextId = Number(event.target.value);
-                    setSelectedInstructorId(nextId || null);
-                    if (nextId && selectedDate) {
-                      void loadAvailability(nextId, selectedDate);
-                    } else {
-                      setAvailabilitySlots([]);
-                      setSelectedScheduledAt(null);
-                    }
-                  }}
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {instructors.map((instructor) => (
+                <button
+                  key={instructor.id}
+                  type="button"
+                  onClick={() => handleSelectInstructor(instructor.id)}
+                  className={cn(
+                    "rounded-2xl border p-4 text-left transition",
+                    selectedInstructorId === instructor.id
+                      ? "border-[var(--brand-yellow)] bg-[rgba(249,181,46,0.08)]"
+                      : "border-[var(--border-soft)] bg-white hover:border-[var(--brand-yellow)]",
+                  )}
                 >
-                  <option value="">Selecione...</option>
-                  {instructors.map((instructor) => (
-                    <option key={instructor.id} value={instructor.id}>
-                      {instructor.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-base font-semibold text-slate-900">
+                        {instructor.name}
+                      </p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        {formatRatingSummary(
+                          instructor.averageRating,
+                          instructor.totalRatings,
+                        )}
+                      </p>
+                    </div>
+                    {selectedInstructorId === instructor.id && (
+                      <Badge className="border-amber-200 bg-amber-50 text-amber-700">
+                        Selecionado
+                      </Badge>
+                    )}
+                  </div>
 
+                  <div className="mt-3 flex items-center gap-3">
+                    <StarRating
+                      value={Math.round(instructor.averageRating ?? 0)}
+                      readonly
+                      size="sm"
+                    />
+                    <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      {instructor.averageRating === null
+                        ? "Sem nota"
+                        : `${formatRatingValue(instructor.averageRating)} / 5`}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </Card>
+        )}
+
+        {isStudent && (
+          <Card className="space-y-5">
+            <div className="space-y-2">
+              <Badge>Novo agendamento</Badge>
+              <h2 className="text-2xl font-bold text-[var(--brand-blue)]">
+                Escolha data e horário
+              </h2>
+              <p className="text-sm leading-6 text-slate-600">
+                {selectedInstructor
+                  ? `Instrutor selecionado: ${selectedInstructor.name}.`
+                  : "Selecione um instrutor para ver os horários livres."}
+              </p>
+            </div>
+
+            <div className="grid gap-3 md:max-w-xs">
               <div className="space-y-2">
                 <label className="text-sm font-semibold text-slate-700">Data da aula</label>
                 <Input
@@ -611,68 +737,40 @@ export default function DashboardPage() {
 
           {!isLoading && !error && appointments.length > 0 && (
             <div className="grid gap-3">
-              {appointments.map((appointment) => (
-                <article
-                  key={appointment.id}
-                  className="rounded-2xl border border-[var(--border-soft)] bg-white p-4"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="space-y-1">
-                      <p className="text-sm font-semibold text-slate-900">
-                        {isStudent
-                          ? `Instrutor: ${appointment.instructorName}`
-                          : `Aluno: ${appointment.studentName}`}
-                      </p>
-                      <p className="text-sm text-slate-600">
-                        Data: {formatDateTime(appointment.scheduledAt)}
-                      </p>
+              {appointments.map((appointment) => {
+                const selectedScore = selectedRatings[appointment.id] ?? 0;
+                const shownRating = appointment.currentUserRatingScore ?? selectedScore;
+
+                return (
+                  <article
+                    key={appointment.id}
+                    className="rounded-2xl border border-[var(--border-soft)] bg-white p-4"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold text-slate-900">
+                          {isStudent
+                            ? `Instrutor: ${appointment.instructorName}`
+                            : `Aluno: ${appointment.studentName}`}
+                        </p>
+                        <p className="text-sm text-slate-600">
+                          Data: {formatDateTime(appointment.scheduledAt)}
+                        </p>
+                        <p className="text-sm text-slate-600">
+                          {isStudent ? "Média do instrutor: " : "Média do aluno: "}
+                          {formatRatingSummary(
+                            appointment.counterpartAverageRating,
+                            appointment.counterpartTotalRatings,
+                          )}
+                        </p>
+                      </div>
+                      <Badge className={getStatusBadgeClass(appointment.status)}>
+                        {statusLabel[appointment.status]}
+                      </Badge>
                     </div>
-                    <Badge className={getStatusBadgeClass(appointment.status)}>
-                      {statusLabel[appointment.status]}
-                    </Badge>
-                  </div>
 
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {isStudent && ["pending", "confirmed"].includes(appointment.status) && (
-                      <Button
-                        variant="outline"
-                        onClick={() =>
-                          void handleUpdateAppointmentStatus(appointment.id, "cancelled")
-                        }
-                      >
-                        Cancelar
-                      </Button>
-                    )}
-
-                    {!isStudent && appointment.status === "pending" && (
-                      <>
-                        <Button
-                          onClick={() =>
-                            void handleUpdateAppointmentStatus(appointment.id, "confirmed")
-                          }
-                        >
-                          Confirmar
-                        </Button>
-                        <Button
-                          variant="outline"
-                          onClick={() =>
-                            void handleUpdateAppointmentStatus(appointment.id, "rejected")
-                          }
-                        >
-                          Recusar
-                        </Button>
-                      </>
-                    )}
-
-                    {!isStudent && appointment.status === "confirmed" && (
-                      <>
-                        <Button
-                          onClick={() =>
-                            void handleUpdateAppointmentStatus(appointment.id, "completed")
-                          }
-                        >
-                          Concluir
-                        </Button>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {isStudent && ["pending", "confirmed"].includes(appointment.status) && (
                         <Button
                           variant="outline"
                           onClick={() =>
@@ -681,11 +779,90 @@ export default function DashboardPage() {
                         >
                           Cancelar
                         </Button>
-                      </>
+                      )}
+
+                      {!isStudent && appointment.status === "pending" && (
+                        <>
+                          <Button
+                            onClick={() =>
+                              void handleUpdateAppointmentStatus(appointment.id, "confirmed")
+                            }
+                          >
+                            Confirmar
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={() =>
+                              void handleUpdateAppointmentStatus(appointment.id, "rejected")
+                            }
+                          >
+                            Recusar
+                          </Button>
+                        </>
+                      )}
+
+                      {!isStudent && appointment.status === "confirmed" && (
+                        <>
+                          <Button
+                            onClick={() =>
+                              void handleUpdateAppointmentStatus(appointment.id, "completed")
+                            }
+                          >
+                            Concluir
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={() =>
+                              void handleUpdateAppointmentStatus(appointment.id, "cancelled")
+                            }
+                          >
+                            Cancelar
+                          </Button>
+                        </>
+                      )}
+                    </div>
+
+                    {appointment.status === "completed" && (
+                      <div className="mt-4 rounded-2xl border border-[var(--border-soft)] bg-slate-50/80 p-4">
+                        <div className="space-y-1">
+                          <p className="text-sm font-semibold text-slate-900">
+                            {isStudent ? "Avalie o instrutor" : "Avalie o aluno"}
+                          </p>
+                          <p className="text-sm text-slate-600">
+                            {appointment.currentUserRatingScore
+                              ? `Sua nota foi ${appointment.currentUserRatingScore} de 5.`
+                              : "Escolha uma nota de 1 a 5 estrelas para registrar sua avaliação."}
+                          </p>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap items-center gap-3">
+                          <StarRating
+                            value={shownRating}
+                            readonly={!appointment.canCurrentUserRate}
+                            onChange={(value) =>
+                              setSelectedRatings((current) => ({
+                                ...current,
+                                [appointment.id]: value,
+                              }))
+                            }
+                          />
+
+                          {appointment.canCurrentUserRate && (
+                            <Button
+                              onClick={() => void handleRateAppointment(appointment.id)}
+                              disabled={ratingAppointmentId === appointment.id || !selectedScore}
+                            >
+                              {ratingAppointmentId === appointment.id
+                                ? "Enviando..."
+                                : "Enviar avaliação"}
+                            </Button>
+                          )}
+                        </div>
+                      </div>
                     )}
-                  </div>
-                </article>
-              ))}
+                  </article>
+                );
+              })}
             </div>
           )}
         </Card>
