@@ -5,8 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { getApiUrl } from "@/lib/api";
-import { getStoredToken } from "@/lib/auth";
+import { apiFetch, getFriendlyErrorMessage, readApiJson } from "@/lib/api";
+import { getValidStoredToken } from "@/lib/auth";
 
 type Profile = {
   id: number;
@@ -53,7 +53,7 @@ type AvailabilitySlot = {
 };
 
 export default function DashboardPage() {
-  const token = getStoredToken();
+  const token = getValidStoredToken();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [instructors, setInstructors] = useState<Instructor[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -87,64 +87,42 @@ export default function DashboardPage() {
           nextAppointmentResponse,
         ] =
           await Promise.all([
-          fetch(`${getApiUrl()}/profile`, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }),
-          fetch(`${getApiUrl()}/instructors`, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }),
-          fetch(`${getApiUrl()}/appointments`, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }),
-          fetch(`${getApiUrl()}/appointments/next`, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }),
+          apiFetch("/profile"),
+          apiFetch("/instructors"),
+          apiFetch("/appointments"),
+          apiFetch("/appointments/next"),
         ]);
 
-        const profilePayload = await profileResponse.json();
-
-        if (!profileResponse.ok) {
-          throw new Error(profilePayload.message || "Não foi possível carregar seu perfil.");
-        }
+        const profilePayload = await readApiJson<Profile>(
+          profileResponse,
+          "Não foi possível carregar seu perfil.",
+        );
 
         setProfile(profilePayload);
 
-        const instructorsPayload = await instructorsResponse.json();
-
-        if (!instructorsResponse.ok) {
-          throw new Error(
-            instructorsPayload.message || "Não foi possível listar os instrutores.",
-          );
-        }
+        const instructorsPayload = await readApiJson<Instructor[]>(
+          instructorsResponse,
+          "Não foi possível listar os instrutores.",
+        );
 
         setInstructors(instructorsPayload);
 
-        const appointmentsPayload = await appointmentsResponse.json();
-        if (!appointmentsResponse.ok) {
-          throw new Error(
-            appointmentsPayload.message || "Não foi possível listar os agendamentos.",
-          );
-        }
+        const appointmentsPayload = await readApiJson<Appointment[]>(
+          appointmentsResponse,
+          "Não foi possível listar os agendamentos.",
+        );
         setAppointments(appointmentsPayload);
 
-        const nextAppointmentPayload = await nextAppointmentResponse.json();
-        if (!nextAppointmentResponse.ok) {
-          throw new Error(
-            nextAppointmentPayload.message || "Não foi possível carregar a próxima aula.",
-          );
-        }
+        const nextAppointmentPayload = await readApiJson<{
+          nextAppointment: NextAppointment;
+        }>(nextAppointmentResponse, "Não foi possível carregar a próxima aula.");
         setNextAppointment(nextAppointmentPayload.nextAppointment ?? null);
       } catch (err) {
         setError(
-          err instanceof Error ? err.message : "Falha ao carregar os dados do dashboard.",
+          getFriendlyErrorMessage(
+            err,
+            "Falha ao carregar os dados do dashboard.",
+          ),
         );
       } finally {
         setIsLoading(false);
@@ -182,29 +160,21 @@ export default function DashboardPage() {
 
   const refreshAppointments = async () => {
     if (!token) return;
-    const response = await fetch(`${getApiUrl()}/appointments`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(payload.message || "Não foi possível atualizar agendamentos.");
-    }
+    const response = await apiFetch("/appointments");
+    const payload = await readApiJson<Appointment[]>(
+      response,
+      "Não foi possível atualizar agendamentos.",
+    );
     setAppointments(payload);
   };
 
   const refreshNextAppointment = async () => {
     if (!token) return;
-    const response = await fetch(`${getApiUrl()}/appointments/next`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(payload.message || "Não foi possível atualizar a próxima aula.");
-    }
+    const response = await apiFetch("/appointments/next");
+    const payload = await readApiJson<{ nextAppointment: NextAppointment }>(
+      response,
+      "Não foi possível atualizar a próxima aula.",
+    );
     setNextAppointment(payload.nextAppointment ?? null);
   };
 
@@ -215,19 +185,13 @@ export default function DashboardPage() {
 
     if (!date) return;
 
-    const response = await fetch(
-      `${getApiUrl()}/appointments/availability?instructorId=${instructorId}&date=${date}`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      },
+    const response = await apiFetch(
+      `/appointments/availability?instructorId=${instructorId}&date=${date}`,
     );
-    const payload = await response.json();
-
-    if (!response.ok) {
-      throw new Error(payload.message || "Não foi possível carregar horários.");
-    }
+    const payload = await readApiJson<{ slots: AvailabilitySlot[] }>(
+      response,
+      "Não foi possível carregar horários.",
+    );
 
     setAvailabilitySlots(payload.slots ?? []);
   };
@@ -242,21 +206,17 @@ export default function DashboardPage() {
       setIsSubmitting(true);
       setActionMessage(null);
 
-      const response = await fetch(`${getApiUrl()}/appointments`, {
+      const response = await apiFetch("/appointments", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           instructorId: selectedInstructorId,
           scheduledAt: selectedScheduledAt,
         }),
       });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.message || "Não foi possível criar o agendamento.");
-      }
+      await readApiJson(response, "Não foi possível criar o agendamento.");
 
       setActionMessage("Agendamento realizado com sucesso.");
       await refreshAppointments();
@@ -266,7 +226,7 @@ export default function DashboardPage() {
       }
     } catch (err) {
       setActionMessage(
-        err instanceof Error ? err.message : "Falha ao criar o agendamento.",
+        getFriendlyErrorMessage(err, "Falha ao criar o agendamento."),
       );
     } finally {
       setIsSubmitting(false);
@@ -281,28 +241,24 @@ export default function DashboardPage() {
 
     try {
       setActionMessage(null);
-      const response = await fetch(
-        `${getApiUrl()}/appointments/${appointmentId}/status`,
+      const response = await apiFetch(
+        `/appointments/${appointmentId}/status`,
         {
           method: "PATCH",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({ status }),
         },
       );
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.message || "Não foi possível atualizar o status.");
-      }
+      await readApiJson(response, "Não foi possível atualizar o status.");
 
       setActionMessage("Status atualizado com sucesso.");
       await refreshAppointments();
       await refreshNextAppointment();
     } catch (err) {
       setActionMessage(
-        err instanceof Error ? err.message : "Falha ao atualizar status.",
+        getFriendlyErrorMessage(err, "Falha ao atualizar status."),
       );
     }
   };

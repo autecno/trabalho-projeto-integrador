@@ -68,6 +68,9 @@ function installWindowMock() {
       atob(value: string) {
         return Buffer.from(value, "base64").toString("binary");
       },
+      dispatchEvent() {
+        return true;
+      },
       localStorage: {
         getItem(key: string) {
           return storage.get(key) ?? null;
@@ -92,7 +95,7 @@ function removeWindowMock() {
 function toBase64Url(value: string) {
   return Buffer.from(value, "utf8")
     .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
     .replace(/=+$/g, "");
 }

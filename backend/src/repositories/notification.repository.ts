@@ -25,6 +25,10 @@ export interface NotificationRepository {
   createAppointmentReminder(
     data: CreateAppointmentReminderNotificationData,
   ): Promise<Notification>;
+  listByUser(userId: number, limit?: number): Promise<Notification[]>;
+  countUnreadByUser(userId: number): Promise<number>;
+  markAsRead(id: number, userId: number): Promise<boolean>;
+  markAllAsRead(userId: number): Promise<void>;
 }
 
 type NotificationRow = RowDataPacket & {
@@ -97,6 +101,61 @@ export class MySqlNotificationRepository implements NotificationRepository {
     }
 
     return mapNotificationRow(notification);
+  }
+
+  async listByUser(userId: number, limit = 10): Promise<Notification[]> {
+    const [rows] = await this.pool.execute<NotificationRow[]>(
+      `
+        SELECT id, user_id, appointment_id, type, title, message, read_at, created_at
+        FROM notifications
+        WHERE user_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+      `,
+      [userId, limit],
+    );
+
+    return rows.map(mapNotificationRow);
+  }
+
+  async countUnreadByUser(userId: number): Promise<number> {
+    const [rows] = await this.pool.execute<(RowDataPacket & { total: number })[]>(
+      `
+        SELECT COUNT(*) AS total
+        FROM notifications
+        WHERE user_id = ?
+          AND read_at IS NULL
+      `,
+      [userId],
+    );
+
+    return rows[0]?.total ?? 0;
+  }
+
+  async markAsRead(id: number, userId: number): Promise<boolean> {
+    const [result] = await this.pool.execute<ResultSetHeader>(
+      `
+        UPDATE notifications
+        SET read_at = COALESCE(read_at, NOW())
+        WHERE id = ?
+          AND user_id = ?
+      `,
+      [id, userId],
+    );
+
+    return result.affectedRows > 0;
+  }
+
+  async markAllAsRead(userId: number): Promise<void> {
+    await this.pool.execute(
+      `
+        UPDATE notifications
+        SET read_at = COALESCE(read_at, NOW())
+        WHERE user_id = ?
+          AND read_at IS NULL
+      `,
+      [userId],
+    );
   }
 }
 
