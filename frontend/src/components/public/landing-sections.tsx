@@ -1,138 +1,121 @@
 import Link from "next/link";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
 const features = [
   {
-    title: "Agendamento de aulas",
+    title: "Para o aluno",
     description:
-      "Escolha data e horário com praticidade para manter a rotina de evolução.",
+      "Veja conteúdos teóricos, acompanhe o progresso e agende aulas práticas sem depender de conversas espalhadas.",
   },
   {
-    title: "Busca de instrutores",
+    title: "Para o instrutor",
     description:
-      "Encontre instrutores de forma organizada, com foco no perfil ideal para você.",
+      "Receba solicitações de aula, confirme horários e mantenha sua agenda organizada em poucos cliques.",
   },
   {
-    title: "Treinamento teórico",
+    title: "Para a rotina",
     description:
-      "Acesse conteúdos essenciais para reforçar os estudos antes das aulas práticas.",
-  },
-  {
-    title: "Notificações",
-    description:
-      "Receba lembretes e confirmações para não perder compromissos importantes.",
+      "Lembretes e notificações reduzem esquecimentos, atrasos e remarcações de última hora.",
   },
 ];
 
 const steps = [
-  "Cadastro",
-  "Login",
-  "Escolher instrutor",
-  "Agendar aula",
-];
-
-const benefits = [
-  "Organização da rotina de aprendizado",
-  "Facilidade para conectar aluno e instrutor",
-  "Economia de tempo no processo de habilitação",
-  "Aprendizado mais eficiente com teoria e prática integradas",
+  "Crie sua conta como aluno ou instrutor",
+  "Acesse seu painel e veja o próximo passo",
+  "Estude os módulos e escolha um horário",
+  "Receba avisos e acompanhe seus agendamentos",
 ];
 
 export function LandingSections() {
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-10 px-4 pb-16">
-      <section className="grid gap-6 lg:grid-cols-2">
-        <Card className="space-y-4">
-          <h2 className="text-2xl font-bold text-[var(--brand-blue)]">Problema</h2>
-          <p className="text-sm leading-7 text-slate-600">
-            Muitos alunos estudam teoria em uma plataforma, buscam instrutores em outra
-            e organizam aulas por mensagens dispersas, o que gera atrasos e confusão.
-          </p>
-        </Card>
-        <Card className="space-y-4">
-          <h2 className="text-2xl font-bold text-[var(--brand-blue)]">Solução</h2>
-          <p className="text-sm leading-7 text-slate-600">
-            A Autecno reúne teoria, prática e agendamento em um único sistema, com fluxo
-            simples para facilitar decisões e acelerar a evolução do aluno.
-          </p>
-        </Card>
-      </section>
-
-      <section id="funcionalidades" className="space-y-5 scroll-mt-28">
-        <h2 className="text-3xl font-bold text-[var(--brand-blue)]">Funcionalidades</h2>
-        <div className="grid gap-4 md:grid-cols-2">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-12 px-4 py-16">
+      <section id="funcionalidades" className="scroll-mt-28 space-y-5">
+        <Badge>O que a Autecno entrega</Badge>
+        <div className="grid gap-4 md:grid-cols-3">
           {features.map((feature) => (
-            <Card key={feature.title} className="space-y-2">
-              <h3 className="text-lg font-semibold text-[var(--brand-blue)]">{feature.title}</h3>
+            <Card key={feature.title} className="space-y-3">
+              <h2 className="text-xl font-bold text-[var(--brand-blue)]">
+                {feature.title}
+              </h2>
               <p className="text-sm leading-6 text-slate-600">{feature.description}</p>
             </Card>
           ))}
         </div>
       </section>
 
-      <section id="como-funciona" className="space-y-5 scroll-mt-28">
-        <h2 className="text-3xl font-bold text-[var(--brand-blue)]">Como funciona</h2>
+      <section id="como-funciona" className="scroll-mt-28 space-y-5">
+        <div className="max-w-2xl space-y-2">
+          <Badge>Como funciona</Badge>
+          <h2 className="text-3xl font-bold text-[var(--brand-blue)]">
+            Um fluxo simples para sair do cadastro até a aula prática.
+          </h2>
+        </div>
         <div className="grid gap-3 md:grid-cols-4">
           {steps.map((step, index) => (
-            <Card key={step} className="space-y-2 p-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                Passo {index + 1}
-              </p>
-              <p className="text-base font-semibold text-[var(--brand-blue)]">{step}</p>
+            <Card key={step} className="space-y-3 p-5">
+              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--brand-yellow)] text-sm font-bold text-[var(--brand-blue)]">
+                {index + 1}
+              </span>
+              <p className="text-sm font-semibold leading-6 text-slate-800">{step}</p>
             </Card>
           ))}
         </div>
       </section>
 
-      <section className="space-y-5">
-        <h2 className="text-3xl font-bold text-[var(--brand-blue)]">Benefícios</h2>
-        <div className="grid gap-3 md:grid-cols-2">
-          {benefits.map((benefit) => (
-            <Card key={benefit} className="p-5">
-              <p className="text-sm font-medium text-slate-700">{benefit}</p>
-            </Card>
-          ))}
+      <section className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+        <div className="space-y-3">
+          <Badge>Menos improviso</Badge>
+          <h2 className="text-3xl font-bold text-[var(--brand-blue)]">
+            Aulas, estudos e lembretes deixam de morar em lugares diferentes.
+          </h2>
+          <p className="text-sm leading-7 text-slate-600">
+            A experiência foi pensada para quem precisa saber o que estudar, quando
+            será a próxima aula e qual ação ainda está pendente.
+          </p>
         </div>
+        <Card className="grid gap-3 sm:grid-cols-3">
+          {["Próxima aula visível", "Progresso dos módulos", "Notificações no painel"].map(
+            (item) => (
+              <div key={item} className="rounded-lg bg-slate-50 p-4">
+                <p className="text-sm font-semibold text-[var(--brand-blue)]">{item}</p>
+              </div>
+            ),
+          )}
+        </Card>
       </section>
 
-      <section className="rounded-2xl border border-[var(--border-soft)] bg-[var(--brand-blue)] p-8 text-white">
+      <section className="rounded-xl bg-[var(--brand-blue)] p-8 text-white">
         <div className="flex flex-col items-start gap-4 md:flex-row md:items-center md:justify-between">
           <div className="space-y-2">
-            <h2 className="text-2xl font-bold">Comece agora sua jornada na Autecno</h2>
+            <h2 className="text-2xl font-bold">Comece organizando sua próxima aula</h2>
             <p className="text-sm text-slate-200">
-              Crie sua conta, faça login e organize suas aulas em poucos passos.
+              Crie sua conta e acesse a área certa para seu perfil.
             </p>
           </div>
           <Link href="/auth/cadastro">
-            <Button className="min-w-40">Comece agora</Button>
+            <Button className="min-w-40">Criar conta</Button>
           </Link>
         </div>
       </section>
 
-      <footer id="contato" className="scroll-mt-28 rounded-2xl border border-[var(--border-soft)] bg-white p-6">
-        <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
-          <div>
-            <h3 className="text-lg font-semibold text-[var(--brand-blue)]">Autecno</h3>
-            <p className="mt-2 text-sm text-slate-600">Integração entre teoria e prática para alunos e instrutores.</p>
-          </div>
-          <div className="space-y-2 text-sm text-slate-600">
-            <p className="font-semibold text-[var(--brand-blue)]">Links úteis</p>
-            <p>
-              <Link href="/auth/login" className="underline">
-                Login
-              </Link>{" "}
-              ·{" "}
-              <Link href="/auth/cadastro" className="underline">
-                Cadastro
-              </Link>
-            </p>
-            <p>Contato: contato@autecno.com.br</p>
-          </div>
+      <footer id="contato" className="scroll-mt-28 border-t border-[var(--border-soft)] py-6">
+        <div className="flex flex-col gap-4 text-sm text-slate-600 md:flex-row md:items-center md:justify-between">
+          <p>
+            <span className="font-semibold text-[var(--brand-blue)]">Autecno</span>:
+            teoria, agenda e acompanhamento para a jornada de habilitação.
+          </p>
+          <p>
+            <Link href="/auth/login" className="font-semibold underline">
+              Login
+            </Link>{" "}
+            ·{" "}
+            <Link href="/auth/cadastro" className="font-semibold underline">
+              Cadastro
+            </Link>
+          </p>
         </div>
-        <p className="mt-6 text-xs text-slate-500">
-          © {new Date().getFullYear()} Autecno. Todos os direitos reservados.
-        </p>
       </footer>
     </div>
   );

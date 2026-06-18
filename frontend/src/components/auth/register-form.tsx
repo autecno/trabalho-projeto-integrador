@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { getApiUrl } from "@/lib/api";
+import { getApiUrl, getFriendlyErrorMessage, readApiJson } from "@/lib/api";
 
 type RegisterFormData = {
   name: string;
@@ -40,16 +40,18 @@ export function RegisterForm() {
         body: JSON.stringify(data),
       });
 
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.message || "Não foi possível concluir o cadastro.");
-      }
+      await readApiJson(response, "Não foi possível concluir o cadastro.");
 
       setSuccess("Cadastro realizado com sucesso. Você já pode entrar.");
       setData({ name: "", email: "", password: "", role: "student" });
       setTimeout(() => router.push("/auth/login"), 700);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao cadastrar.");
+      setError(
+        getFriendlyErrorMessage(
+          err,
+          "Não foi possível concluir o cadastro. Confira os dados e tente novamente.",
+        ),
+      );
     } finally {
       setIsSubmitting(false);
     }

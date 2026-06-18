@@ -359,7 +359,7 @@ test('GET /profile requires authentication', async () => {
 
   assert.equal(response.statusCode, 401);
   assert.deepEqual(response.json(), {
-    message: 'Unauthorized.',
+    message: 'Sua sessão expirou ou não foi informada. Faça login novamente.',
   });
 
   await app.close();
@@ -432,7 +432,7 @@ test('GET /instructors requires authentication', async () => {
 
   assert.equal(response.statusCode, 401);
   assert.deepEqual(response.json(), {
-    message: 'Unauthorized.',
+    message: 'Sua sessão expirou ou não foi informada. Faça login novamente.',
   });
 
   await app.close();

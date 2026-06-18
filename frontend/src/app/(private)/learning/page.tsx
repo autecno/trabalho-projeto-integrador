@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { getApiUrl } from "@/lib/api";
-import { getStoredToken } from "@/lib/auth";
+import { apiFetch, getFriendlyErrorMessage, readApiJson } from "@/lib/api";
+import { getValidStoredToken } from "@/lib/auth";
 
 type ModuleSummary = {
   id: number;
@@ -16,7 +16,7 @@ type ModuleSummary = {
 };
 
 export default function LearningPage() {
-  const token = getStoredToken();
+  const token = getValidStoredToken();
   const [modules, setModules] = useState<ModuleSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(Boolean(token));
@@ -34,20 +34,17 @@ export default function LearningPage() {
       setError(null);
 
       try {
-        const response = await fetch(`${getApiUrl()}/learning/modules`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-
-        const payload = await response.json();
-        if (!response.ok) {
-          throw new Error(payload.message || 'Não foi possível carregar os módulos.');
-        }
+        const response = await apiFetch("/learning/modules");
+        const payload = await readApiJson<ModuleSummary[]>(
+          response,
+          'Não foi possível carregar os módulos.',
+        );
 
         setModules(payload);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Erro ao carregar os módulos.');
+        setError(
+          getFriendlyErrorMessage(err, 'Erro ao carregar os módulos.'),
+        );
       } finally {
         setLoading(false);
       }

@@ -5,8 +5,8 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { getApiUrl } from "@/lib/api";
-import { getStoredToken } from "@/lib/auth";
+import { apiFetch, getFriendlyErrorMessage, readApiJson } from "@/lib/api";
+import { getValidStoredToken } from "@/lib/auth";
 
 type ModuleDetail = {
   id: number;
@@ -49,7 +49,7 @@ type QuizResult = {
 export default function ModulePage() {
   const params = useParams<{ moduleId: string }>();
   const router = useRouter();
-  const token = getStoredToken();
+  const token = getValidStoredToken();
   const [module, setModule] = useState<ModuleDetail | null>(null);
   const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
   const [selectedAnswers, setSelectedAnswers] = useState<QuizAnswerState>({});
@@ -86,32 +86,26 @@ export default function ModulePage() {
 
       try {
         const [moduleResponse, quizResponse] = await Promise.all([
-          fetch(`${getApiUrl()}/learning/modules/${moduleId}`, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }),
-          fetch(`${getApiUrl()}/learning/modules/${moduleId}/quiz`, {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }),
+          apiFetch(`/learning/modules/${moduleId}`),
+          apiFetch(`/learning/modules/${moduleId}/quiz`),
         ]);
 
-        const modulePayload = await moduleResponse.json();
-        if (!moduleResponse.ok) {
-          throw new Error(modulePayload.message || 'Não foi possível carregar o módulo.');
-        }
+        const modulePayload = await readApiJson<ModuleDetail>(
+          moduleResponse,
+          'Não foi possível carregar o módulo.',
+        );
 
-        const quizPayload = await quizResponse.json();
-        if (!quizResponse.ok) {
-          throw new Error(quizPayload.message || 'Não foi possível carregar o simulado.');
-        }
+        const quizPayload = await readApiJson<QuizQuestion[]>(
+          quizResponse,
+          'Não foi possível carregar o simulado.',
+        );
 
         setModule(modulePayload);
         setQuizQuestions(quizPayload);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Falha ao carregar o módulo.');
+        setError(
+          getFriendlyErrorMessage(err, 'Falha ao carregar o módulo.'),
+        );
       } finally {
         setLoading(false);
       }
@@ -138,23 +132,24 @@ export default function ModulePage() {
         selectedOptionIndex,
       }));
 
-      const response = await fetch(`${getApiUrl()}/learning/modules/${moduleId}/quiz/submit`, {
+      const response = await apiFetch(`/learning/modules/${moduleId}/quiz/submit`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ answers: payload }),
       });
 
-      const result = await response.json();
-      if (!response.ok) {
-        throw new Error(result.message || 'Falha ao enviar o simulado.');
-      }
+      const result = await readApiJson<QuizResult>(
+        response,
+        'Falha ao enviar o simulado.',
+      );
 
       setQuizResult(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao enviar o simulado.');
+      setError(
+        getFriendlyErrorMessage(err, 'Erro ao enviar o simulado.'),
+      );
     } finally {
       setSubmitting(false);
     }

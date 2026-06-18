@@ -14,7 +14,7 @@ export function buildAuthenticateRequest(options: AuthenticateRequestOptions) {
 
     if (!authorizationHeader?.startsWith('Bearer ')) {
       return reply.status(401).send({
-        message: 'Unauthorized.',
+        message: 'Sua sessão expirou ou não foi informada. Faça login novamente.',
       });
     }
 
@@ -28,7 +28,7 @@ export function buildAuthenticateRequest(options: AuthenticateRequestOptions) {
     } catch (error) {
       if (error instanceof InvalidTokenError) {
         return reply.status(401).send({
-          message: 'Unauthorized.',
+          message: 'Sua sessão expirou ou não foi informada. Faça login novamente.',
         });
       }
 
