@@ -377,9 +377,17 @@ export async function registerAppointmentsRoutes(
 
       if (options.appointmentReminderQueue) {
         try {
-          await scheduleAppointmentReminderJobs(
+          const reminderSchedule = await scheduleAppointmentReminderJobs(
             options.appointmentReminderQueue,
             created,
+          );
+          request.log.info(
+            {
+              appointmentId: created.id,
+              scheduledReminders: reminderSchedule.scheduled,
+              skippedReminders: reminderSchedule.skipped,
+            },
+            'Appointment reminder jobs scheduled.',
           );
         } catch (error) {
           request.log.error({ err: error }, 'Failed to schedule appointment reminders.');
