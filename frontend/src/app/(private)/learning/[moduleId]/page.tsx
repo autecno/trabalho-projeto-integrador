@@ -220,7 +220,7 @@ export default function ModulePage() {
               <div className="space-y-4">
                 <h2 className="text-lg font-semibold text-slate-900">Simulado do módulo</h2>
                 <p className="text-slate-600">
-                  Pratique com {quizQuestions.length} questões de múltipla escolha para se preparar para a prova.
+                  Pratique com questões de múltipla escolha para se preparar para a prova.
                 </p>
                 <Link href={`/learning/${moduleId}/quiz`}>
                   <Button className="w-full bg-blue-600 hover:bg-blue-700">
