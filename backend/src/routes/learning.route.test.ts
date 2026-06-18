@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildApp } from '../app';
-import { Appointment, AppointmentRepository, AppointmentStatus, AppointmentWithNames, CreateAppointmentData, UpdateAppointmentStatusData } from '../repositories/appointment.repository';
+import { Appointment, AppointmentRepository, AppointmentStatus, AppointmentWithNames, CreateAppointmentData, InstructorAvailability, UpdateAppointmentStatusData, UpsertInstructorAvailabilityData } from '../repositories/appointment.repository';
 import { UserRepository, CreateUserData, User } from '../repositories/user.repository';
 import { LearningRepository, LearningContentType, QuizAnswerSubmission, QuizSubmissionResult } from '../repositories/learning.repository';
 import { generateToken } from '../services/jwt.service';
@@ -61,6 +61,21 @@ class InMemoryAppointmentRepository implements AppointmentRepository {
   }
   async hasConflict(instructorId: number, scheduledAt: Date): Promise<boolean> {
     return false;
+  }
+  async listAvailabilityByInstructor(): Promise<InstructorAvailability[]> {
+    return [];
+  }
+  async replaceAvailability(instructorId: number, intervals: UpsertInstructorAvailabilityData[]): Promise<InstructorAvailability[]> {
+    return intervals.map((interval, index) => ({
+      id: index + 1,
+      instructorId,
+      weekday: interval.weekday,
+      startTime: interval.startTime,
+      endTime: interval.endTime,
+    }));
+  }
+  async isInstructorAvailableAt(): Promise<boolean> {
+    return true;
   }
   async updateStatus(id: number, data: UpdateAppointmentStatusData): Promise<AppointmentWithNames | null> {
     return null;
