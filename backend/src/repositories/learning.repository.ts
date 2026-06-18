@@ -7,7 +7,10 @@ export interface LearningModuleSummary {
   title: string;
   description: string;
   videosCount: number;
+  contentCount: number;
+  completedContentCount: number;
   progressPercent: number;
+  quizCompleted: boolean;
 }
 
 export interface LearningContentListItem {
@@ -53,6 +56,25 @@ export type QuizSubmissionResult = {
   }>;
 };
 
+export type LearningQuizAttemptSummary = {
+  totalQuestions: number;
+  correctAnswers: number;
+  wrongAnswers: number;
+  percentageCorrect: number;
+  passed: boolean;
+  completedAt: Date;
+};
+
+export type LearningModuleStatus = {
+  contentCount: number;
+  completedContentCount: number;
+  quizCount: number;
+  quizUnlocked: boolean;
+  quizCompleted: boolean;
+  progressPercent: number;
+  latestQuizResult: LearningQuizAttemptSummary | null;
+};
+
 export interface LearningRepository {
   ensureSchema(): Promise<void>;
   seedDefaultLearningData(): Promise<void>;
@@ -65,17 +87,29 @@ export interface LearningRepository {
     title: string;
     description: string;
     videosCount: number;
+    contentCount: number;
+    completedContentCount: number;
     progressPercent: number;
     contents: LearningContentListItem[];
     quizCount: number;
+    quizUnlocked: boolean;
+    quizCompleted: boolean;
+    latestQuizResult: LearningQuizAttemptSummary | null;
   } | null>;
   findContentById(contentId: number): Promise<LearningContentDetail | null>;
   recordContentProgress(userId: number, contentId: number): Promise<void>;
+  getModuleStatus(studentId: number, moduleId: number): Promise<LearningModuleStatus | null>;
+  getStudentLegislationProgress(studentId: number): Promise<LearningModuleSummary | null>;
   listQuizQuestionsByModule(moduleId: number): Promise<LearningQuizQuestion[]>;
   evaluateQuizAnswers(
     moduleId: number,
     answers: QuizAnswerSubmission[],
   ): Promise<QuizSubmissionResult>;
+  recordQuizAttempt(
+    studentId: number,
+    moduleId: number,
+    result: QuizSubmissionResult,
+  ): Promise<LearningQuizAttemptSummary>;
 }
 
 type LearningModuleRow = RowDataPacket & {
@@ -107,6 +141,15 @@ type LearningQuizQuestionRow = RowDataPacket & {
   explanation: string | null;
   active: number;
   sort_order: number;
+};
+
+type LearningQuizAttemptRow = RowDataPacket & {
+  total_questions: number;
+  correct_answers: number;
+  wrong_answers: number;
+  percentage_correct: number | string;
+  passed: number;
+  completed_at: Date;
 };
 
 export class MySqlLearningRepository implements LearningRepository {
@@ -164,6 +207,23 @@ export class MySqlLearningRepository implements LearningRepository {
         UNIQUE KEY unique_learning_progress (user_id, content_id),
         CONSTRAINT fk_learning_progress_user FOREIGN KEY (user_id) REFERENCES users(id),
         CONSTRAINT fk_learning_progress_content FOREIGN KEY (content_id) REFERENCES learning_contents(id)
+      )
+    `);
+
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS learning_quiz_attempts (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        module_id INT NOT NULL,
+        total_questions INT NOT NULL,
+        correct_answers INT NOT NULL,
+        wrong_answers INT NOT NULL,
+        percentage_correct DECIMAL(5,2) NOT NULL,
+        passed TINYINT(1) NOT NULL DEFAULT 0,
+        completed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_learning_quiz_attempts_user_module (user_id, module_id, completed_at),
+        CONSTRAINT fk_learning_quiz_attempts_user FOREIGN KEY (user_id) REFERENCES users(id),
+        CONSTRAINT fk_learning_quiz_attempts_module FOREIGN KEY (module_id) REFERENCES learning_modules(id)
       )
     `);
   }
@@ -538,33 +598,72 @@ export class MySqlLearningRepository implements LearningRepository {
           m.id,
           m.title,
           m.description,
-          COALESCE(COUNT(c.id), 0) AS videos_count,
-          COALESCE(SUM(progress.id IS NOT NULL), 0) AS watched_count
+          COALESCE(content_stats.videos_count, 0) AS videos_count,
+          COALESCE(content_stats.content_count, 0) AS content_count,
+          COALESCE(progress_stats.completed_content_count, 0) AS completed_content_count,
+          COALESCE(quiz_stats.quiz_count, 0) AS quiz_count,
+          latest_attempt.id AS latest_quiz_attempt_id
         FROM learning_modules m
-        LEFT JOIN learning_contents c
-          ON c.module_id = m.id
-          AND c.active = 1
-          AND c.type = 'video'
-        LEFT JOIN learning_progress progress
-          ON progress.content_id = c.id
-          AND progress.user_id = ?
+        LEFT JOIN (
+          SELECT
+            module_id,
+            COUNT(*) AS content_count,
+            SUM(CASE WHEN type = 'video' THEN 1 ELSE 0 END) AS videos_count
+          FROM learning_contents
+          WHERE active = 1
+          GROUP BY module_id
+        ) content_stats ON content_stats.module_id = m.id
+        LEFT JOIN (
+          SELECT c.module_id, COUNT(DISTINCT p.content_id) AS completed_content_count
+          FROM learning_progress p
+          INNER JOIN learning_contents c ON c.id = p.content_id
+          WHERE p.user_id = ?
+            AND c.active = 1
+          GROUP BY c.module_id
+        ) progress_stats ON progress_stats.module_id = m.id
+        LEFT JOIN (
+          SELECT module_id, COUNT(*) AS quiz_count
+          FROM learning_quiz_questions
+          WHERE active = 1
+          GROUP BY module_id
+        ) quiz_stats ON quiz_stats.module_id = m.id
+        LEFT JOIN learning_quiz_attempts latest_attempt
+          ON latest_attempt.id = (
+            SELECT attempt.id
+            FROM learning_quiz_attempts attempt
+            WHERE attempt.user_id = ?
+              AND attempt.module_id = m.id
+            ORDER BY attempt.completed_at DESC, attempt.id DESC
+            LIMIT 1
+          )
         WHERE m.active = 1
-        GROUP BY m.id
         ORDER BY m.sort_order ASC
       `,
-      [studentId],
+      [studentId, studentId],
     );
 
-    return rows.map((row) => ({
-      id: Number(row.id),
-      title: String(row.title),
-      description: String(row.description),
-      videosCount: Number(row.videos_count),
-      progressPercent:
-        Number(row.videos_count) > 0
-          ? Math.round((Number(row.watched_count) / Number(row.videos_count)) * 100)
-          : 0,
-    }));
+    return rows.map((row) => {
+      const contentCount = Number(row.content_count);
+      const completedContentCount = Number(row.completed_content_count);
+      const quizCount = Number(row.quiz_count);
+      const quizCompleted = row.latest_quiz_attempt_id !== null;
+
+      return {
+        id: Number(row.id),
+        title: String(row.title),
+        description: String(row.description),
+        videosCount: Number(row.videos_count),
+        contentCount,
+        completedContentCount,
+        progressPercent: calculateProgressPercent({
+          contentCount,
+          completedContentCount,
+          quizCount,
+          quizCompleted,
+        }),
+        quizCompleted,
+      };
+    });
   }
 
   async findModuleById(
@@ -575,9 +674,14 @@ export class MySqlLearningRepository implements LearningRepository {
     title: string;
     description: string;
     videosCount: number;
+    contentCount: number;
+    completedContentCount: number;
     progressPercent: number;
     contents: LearningContentListItem[];
     quizCount: number;
+    quizUnlocked: boolean;
+    quizCompleted: boolean;
+    latestQuizResult: LearningQuizAttemptSummary | null;
   } | null> {
     const [moduleRows] = await this.pool.execute<LearningModuleRow[]>(
       `
@@ -606,30 +710,21 @@ export class MySqlLearningRepository implements LearningRepository {
       [moduleId],
     );
 
-    const [progressRows] = await this.pool.execute<RowDataPacket[]>(
-      `
-        SELECT COUNT(*) as watched_count
-        FROM learning_progress p
-        INNER JOIN learning_contents c ON c.id = p.content_id
-        WHERE p.user_id = ?
-          AND c.module_id = ?
-          AND c.active = 1
-          AND c.type = 'video'
-      `,
-      [studentId, moduleId],
-    );
-
     const videosCount = contents.filter((content) => content.type === 'video').length;
-    const watchedCount = Number(progressRows[0]?.watched_count ?? 0);
-
     const quizCount = await this.countQuizQuestions(moduleId);
+    const status = await this.getModuleStatus(studentId, moduleId);
+    if (!status) {
+      return null;
+    }
 
     return {
       id: module.id,
       title: module.title,
       description: module.description,
       videosCount,
-      progressPercent: videosCount > 0 ? Math.round((watchedCount / videosCount) * 100) : 0,
+      contentCount: status.contentCount,
+      completedContentCount: status.completedContentCount,
+      progressPercent: status.progressPercent,
       contents: contents.map((content) => ({
         id: content.id,
         moduleId: content.module_id,
@@ -638,6 +733,9 @@ export class MySqlLearningRepository implements LearningRepository {
         summary: content.summary,
       })),
       quizCount,
+      quizUnlocked: status.quizUnlocked,
+      quizCompleted: status.quizCompleted,
+      latestQuizResult: status.latestQuizResult,
     };
   }
 
@@ -679,6 +777,83 @@ export class MySqlLearningRepository implements LearningRepository {
         ON DUPLICATE KEY UPDATE watched_at = CURRENT_TIMESTAMP
       `,
       [userId, contentId],
+    );
+  }
+
+  async getModuleStatus(
+    studentId: number,
+    moduleId: number,
+  ): Promise<LearningModuleStatus | null> {
+    const [rows] = await this.pool.execute<RowDataPacket[]>(
+      `
+        SELECT
+          m.id,
+          COALESCE(content_stats.content_count, 0) AS content_count,
+          COALESCE(progress_stats.completed_content_count, 0) AS completed_content_count,
+          COALESCE(quiz_stats.quiz_count, 0) AS quiz_count
+        FROM learning_modules m
+        LEFT JOIN (
+          SELECT module_id, COUNT(*) AS content_count
+          FROM learning_contents
+          WHERE active = 1
+          GROUP BY module_id
+        ) content_stats ON content_stats.module_id = m.id
+        LEFT JOIN (
+          SELECT c.module_id, COUNT(DISTINCT p.content_id) AS completed_content_count
+          FROM learning_progress p
+          INNER JOIN learning_contents c ON c.id = p.content_id
+          WHERE p.user_id = ?
+            AND c.active = 1
+          GROUP BY c.module_id
+        ) progress_stats ON progress_stats.module_id = m.id
+        LEFT JOIN (
+          SELECT module_id, COUNT(*) AS quiz_count
+          FROM learning_quiz_questions
+          WHERE active = 1
+          GROUP BY module_id
+        ) quiz_stats ON quiz_stats.module_id = m.id
+        WHERE m.id = ?
+          AND m.active = 1
+        LIMIT 1
+      `,
+      [studentId, moduleId],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      return null;
+    }
+
+    const latestQuizResult = await this.getLatestQuizAttempt(studentId, moduleId);
+    const contentCount = Number(row.content_count);
+    const completedContentCount = Number(row.completed_content_count);
+    const quizCount = Number(row.quiz_count);
+    const quizCompleted = latestQuizResult !== null;
+
+    return {
+      contentCount,
+      completedContentCount,
+      quizCount,
+      quizUnlocked: contentCount > 0 && completedContentCount >= contentCount,
+      quizCompleted,
+      progressPercent: calculateProgressPercent({
+        contentCount,
+        completedContentCount,
+        quizCount,
+        quizCompleted,
+      }),
+      latestQuizResult,
+    };
+  }
+
+  async getStudentLegislationProgress(
+    studentId: number,
+  ): Promise<LearningModuleSummary | null> {
+    const modules = await this.listModulesByStudent(studentId);
+    return (
+      modules.find((module) =>
+        normalizeText(module.title).includes('legislacao'),
+      ) ?? null
     );
   }
 
@@ -746,6 +921,48 @@ export class MySqlLearningRepository implements LearningRepository {
     };
   }
 
+  async recordQuizAttempt(
+    studentId: number,
+    moduleId: number,
+    result: QuizSubmissionResult,
+  ): Promise<LearningQuizAttemptSummary> {
+    const percentageCorrect =
+      result.total > 0 ? Number(((result.correct / result.total) * 100).toFixed(2)) : 0;
+    const wrongAnswers = result.total - result.correct;
+    const passed = percentageCorrect >= 70;
+
+    await this.pool.execute(
+      `
+        INSERT INTO learning_quiz_attempts (
+          user_id,
+          module_id,
+          total_questions,
+          correct_answers,
+          wrong_answers,
+          percentage_correct,
+          passed
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        studentId,
+        moduleId,
+        result.total,
+        result.correct,
+        wrongAnswers,
+        percentageCorrect,
+        passed ? 1 : 0,
+      ],
+    );
+
+    const latestAttempt = await this.getLatestQuizAttempt(studentId, moduleId);
+    if (!latestAttempt) {
+      throw new Error('Failed to retrieve created quiz attempt.');
+    }
+
+    return latestAttempt;
+  }
+
   private async countQuizQuestions(moduleId: number) {
     const [rows] = await this.pool.query<RowDataPacket[]>(
       `
@@ -759,6 +976,69 @@ export class MySqlLearningRepository implements LearningRepository {
 
     return Number(rows[0]?.total ?? 0);
   }
+
+  private async getLatestQuizAttempt(
+    studentId: number,
+    moduleId: number,
+  ): Promise<LearningQuizAttemptSummary | null> {
+    const [rows] = await this.pool.execute<LearningQuizAttemptRow[]>(
+      `
+        SELECT
+          total_questions,
+          correct_answers,
+          wrong_answers,
+          percentage_correct,
+          passed,
+          completed_at
+        FROM learning_quiz_attempts
+        WHERE user_id = ?
+          AND module_id = ?
+        ORDER BY completed_at DESC, id DESC
+        LIMIT 1
+      `,
+      [studentId, moduleId],
+    );
+
+    const row = rows[0];
+    return row ? mapQuizAttemptRow(row) : null;
+  }
+}
+
+function calculateProgressPercent(data: {
+  contentCount: number;
+  completedContentCount: number;
+  quizCount: number;
+  quizCompleted: boolean;
+}) {
+  const quizStepCount = data.quizCount > 0 ? 1 : 0;
+  const totalSteps = data.contentCount + quizStepCount;
+  if (totalSteps <= 0) {
+    return 0;
+  }
+
+  const completedSteps =
+    Math.min(data.completedContentCount, data.contentCount) +
+    (data.quizCompleted && quizStepCount > 0 ? 1 : 0);
+
+  return Math.round((completedSteps / totalSteps) * 100);
+}
+
+function mapQuizAttemptRow(row: LearningQuizAttemptRow): LearningQuizAttemptSummary {
+  return {
+    totalQuestions: Number(row.total_questions),
+    correctAnswers: Number(row.correct_answers),
+    wrongAnswers: Number(row.wrong_answers),
+    percentageCorrect: Number(row.percentage_correct),
+    passed: Number(row.passed) === 1,
+    completedAt: row.completed_at,
+  };
+}
+
+function normalizeText(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
 }
 
 function parseQuestionOptions(value: string[] | string): string[] {

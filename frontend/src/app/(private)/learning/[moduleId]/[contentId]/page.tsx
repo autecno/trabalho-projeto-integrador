@@ -63,11 +63,9 @@ export default function ContentPage() {
 
         setContent(payload);
 
-        if (payload.type === 'video') {
-          await apiFetch(`/learning/contents/${contentId}/progress`, {
-            method: 'POST',
-          });
-        }
+        await apiFetch(`/learning/contents/${contentId}/progress`, {
+          method: 'POST',
+        });
       } catch (err) {
         setError(
           getFriendlyErrorMessage(err, 'Falha ao carregar o conteúdo.'),

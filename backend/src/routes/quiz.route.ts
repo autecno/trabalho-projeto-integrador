@@ -5,6 +5,7 @@ import {
   LearningRepository,
   QuizAnswerSubmission,
 } from '../repositories/learning.repository';
+import { assertStudent, requireUnlockedQuiz } from './learning-guards';
 
 type RegisterQuizRoutesOptions = {
   jwtSecret: string;
@@ -19,15 +20,6 @@ type QuizSubmissionBody = {
   answers?: QuizAnswerSubmission[];
 };
 
-function assertStudent(user: AuthTokenPayload, reply: any) {
-  if (user.role !== 'student') {
-    reply.status(403).send({ message: 'Apenas alunos podem acessar este recurso.' });
-    return false;
-  }
-
-  return true;
-}
-
 export async function registerQuizRoutes(
   fastify: FastifyInstance,
   options: RegisterQuizRoutesOptions,
@@ -36,108 +28,111 @@ export async function registerQuizRoutes(
     jwtSecret: options.jwtSecret,
   });
 
-  /**
-   * GET /quiz/modules/:moduleId/start
-   * Returns quiz questions for a module to start a new mock exam
-   * Requires authentication and student role
-   */
   fastify.get(
     '/quiz/modules/:moduleId/start',
     { preHandler: authenticateRequest },
     async (request, reply) => {
       const authenticatedRequest = request as typeof request & AuthenticatedRequest;
-      if (!assertStudent(authenticatedRequest.user, reply)) {
-        return;
-      }
+      if (!assertStudent(authenticatedRequest.user, reply)) return;
 
-      const { moduleId } = request.params as { moduleId: string };
-      const moduleIdNumber = Number(moduleId);
-
-      if (isNaN(moduleIdNumber)) {
-        reply.status(400).send({ message: 'ID do módulo inválido.' });
-        return;
+      const moduleId = Number((request.params as { moduleId: string }).moduleId);
+      if (!Number.isFinite(moduleId) || moduleId <= 0) {
+        return reply.status(400).send({ message: 'ID do modulo invalido.' });
       }
 
       try {
+        const status = await requireUnlockedQuiz({
+          learningRepository: options.learningRepository,
+          studentId: Number(authenticatedRequest.user.sub),
+          moduleId,
+          reply,
+          purpose: 'start',
+        });
+        if (!status) return;
+
         const questions = await options.learningRepository.listQuizQuestionsByModule(
-          moduleIdNumber,
+          moduleId,
         );
 
-        if (!questions || questions.length === 0) {
-          reply.status(404).send({ message: 'Nenhuma questão encontrada para este módulo.' });
-          return;
+        if (questions.length === 0) {
+          return reply.status(404).send({
+            message: 'Nenhuma questao encontrada para este modulo.',
+          });
         }
 
-        reply.send({
-          moduleId: moduleIdNumber,
-          questions: questions.map((q) => ({
-            id: q.id,
-            moduleId: q.moduleId,
-            prompt: q.prompt,
-            options: q.options,
-          })),
+        return {
+          moduleId,
+          latestQuizResult: status.latestQuizResult,
           totalQuestions: questions.length,
-        });
+          questions: questions.map(({ id, moduleId: questionModuleId, prompt, options }) => ({
+            id,
+            moduleId: questionModuleId,
+            prompt,
+            options,
+          })),
+        };
       } catch (error) {
-        reply.status(500).send({ message: 'Erro ao iniciar o simulado.' });
+        return reply.status(500).send({ message: 'Erro ao iniciar o simulado.' });
       }
     },
   );
 
-  /**
-   * POST /quiz/modules/:moduleId/submit
-   * Evaluates quiz answers and returns result with scores
-   * Requires authentication and student role
-   */
   fastify.post(
     '/quiz/modules/:moduleId/submit',
     { preHandler: authenticateRequest },
     async (request, reply) => {
       const authenticatedRequest = request as typeof request & AuthenticatedRequest;
-      if (!assertStudent(authenticatedRequest.user, reply)) {
-        return;
-      }
+      if (!assertStudent(authenticatedRequest.user, reply)) return;
 
-      const { moduleId } = request.params as { moduleId: string };
+      const moduleId = Number((request.params as { moduleId: string }).moduleId);
       const { answers } = request.body as QuizSubmissionBody;
 
-      const moduleIdNumber = Number(moduleId);
-
-      if (isNaN(moduleIdNumber)) {
-        reply.status(400).send({ message: 'ID do módulo inválido.' });
-        return;
+      if (!Number.isFinite(moduleId) || moduleId <= 0) {
+        return reply.status(400).send({ message: 'ID do modulo invalido.' });
       }
 
-      if (!answers || !Array.isArray(answers)) {
-        reply.status(400).send({ message: 'Formato de respostas inválido.' });
-        return;
+      if (!Array.isArray(answers)) {
+        return reply.status(400).send({ message: 'Formato de respostas invalido.' });
       }
 
       try {
+        const status = await requireUnlockedQuiz({
+          learningRepository: options.learningRepository,
+          studentId: Number(authenticatedRequest.user.sub),
+          moduleId,
+          reply,
+          purpose: 'submit',
+        });
+        if (!status) return;
+
         const result = await options.learningRepository.evaluateQuizAnswers(
-          moduleIdNumber,
+          moduleId,
           answers,
         );
+        const savedAttempt = await options.learningRepository.recordQuizAttempt(
+          Number(authenticatedRequest.user.sub),
+          moduleId,
+          result,
+        );
 
-        const percentage = result.total > 0 ? (result.correct / result.total) * 100 : 0;
-
-        reply.send({
-          moduleId: moduleIdNumber,
-          totalQuestions: result.total,
-          correctAnswers: result.correct,
-          wrongAnswers: result.total - result.correct,
-          percentageCorrect: parseFloat(percentage.toFixed(2)),
-          passed: percentage >= 70, // 70% to pass
-          results: result.results.map((r) => ({
-            questionId: r.questionId,
-            isCorrect: r.correct,
-            selectedOptionIndex: r.selectedOptionIndex,
-            correctOptionIndex: r.correctOptionIndex,
-            explanation: r.explanation,
+        return {
+          moduleId,
+          totalQuestions: savedAttempt.totalQuestions,
+          correctAnswers: savedAttempt.correctAnswers,
+          wrongAnswers: savedAttempt.wrongAnswers,
+          percentageCorrect: savedAttempt.percentageCorrect,
+          passed: savedAttempt.passed,
+          completedAt: savedAttempt.completedAt,
+          results: result.results.map((item) => ({
+            questionId: item.questionId,
+            isCorrect: item.correct,
+            selectedOptionIndex: item.selectedOptionIndex,
+            correctOptionIndex: item.correctOptionIndex,
+            explanation: item.explanation,
           })),
-        });
+        };
       } catch (error) {
-        reply.status(500).send({ message: 'Erro ao avaliar o simulado.' });
+        return reply.status(500).send({ message: 'Erro ao avaliar o simulado.' });
       }
     },
   );

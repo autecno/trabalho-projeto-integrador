@@ -8,6 +8,15 @@ import { QuizComponent, QuizQuestion, QuizResult } from '@/components/quiz/quiz-
 import { apiFetch, getFriendlyErrorMessage, readApiJson } from '@/lib/api';
 import { getValidStoredToken } from '@/lib/auth';
 
+type QuizAttemptSummary = {
+  totalQuestions: number;
+  correctAnswers: number;
+  wrongAnswers: number;
+  percentageCorrect: number;
+  passed: boolean;
+  completedAt: string;
+};
+
 export default function QuizPage() {
   const params = useParams<{ moduleId: string }>();
   const router = useRouter();
@@ -20,6 +29,8 @@ export default function QuizPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showQuiz, setShowQuiz] = useState(false);
+  const [latestQuizResult, setLatestQuizResult] =
+    useState<QuizAttemptSummary | null>(null);
 
   useEffect(() => {
     if (!token) {
@@ -35,12 +46,13 @@ export default function QuizPage() {
         setError(null);
 
         const response = await apiFetch(`/quiz/modules/${moduleId}/start`);
-        const data = await readApiJson<{ questions: QuizQuestion[] }>(
-          response,
-          'Erro ao carregar as questoes',
-        );
+        const data = await readApiJson<{
+          questions: QuizQuestion[];
+          latestQuizResult: QuizAttemptSummary | null;
+        }>(response, 'Erro ao carregar as questoes');
 
         setQuestions(data.questions);
+        setLatestQuizResult(data.latestQuizResult);
       } catch (err) {
         setError(getFriendlyErrorMessage(err, 'Erro ao carregar o simulado'));
       } finally {
@@ -68,6 +80,11 @@ export default function QuizPage() {
   const handleClose = () => {
     setShowQuiz(false);
     router.back();
+  };
+
+  const handleRetake = () => {
+    setShowQuiz(false);
+    setTimeout(() => setShowQuiz(true), 0);
   };
 
   if (!token) {
@@ -157,6 +174,16 @@ export default function QuizPage() {
               <h2 className="mb-4 text-2xl font-semibold text-gray-900">
                 Bem-vindo ao Simulado!
               </h2>
+              {latestQuizResult && (
+                <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                  <p className="font-semibold text-slate-900">Ultima nota</p>
+                  <p className="mt-1 text-sm text-slate-700">
+                    {latestQuizResult.percentageCorrect}% de aproveitamento (
+                    {latestQuizResult.correctAnswers}/
+                    {latestQuizResult.totalQuestions} acertos).
+                  </p>
+                </div>
+              )}
               <div className="space-y-3 text-gray-700">
                 <p>Este e um simulado teorico com as seguintes caracteristicas:</p>
                 <ul className="space-y-2 pl-5">
@@ -182,7 +209,7 @@ export default function QuizPage() {
               onClick={() => setShowQuiz(true)}
               className="w-full bg-blue-600 hover:bg-blue-700"
             >
-              Iniciar Prova
+              {latestQuizResult ? 'Refazer Prova' : 'Iniciar Prova'}
             </Button>
           </div>
         </Card>
@@ -192,6 +219,7 @@ export default function QuizPage() {
             questions={questions}
             onSubmit={handleSubmitQuiz}
             onClose={handleClose}
+            onRetake={handleRetake}
           />
         </Card>
       )}

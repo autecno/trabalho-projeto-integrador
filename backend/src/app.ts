@@ -68,6 +68,7 @@ export async function buildApp(options: BuildAppOptions) {
     jwtSecret,
     userRepository: options.userRepository,
     appointmentRepository: options.appointmentRepository,
+    learningRepository: options.learningRepository,
     appointmentRatingRepository,
     ...(options.notificationRepository
       ? { notificationRepository: options.notificationRepository }

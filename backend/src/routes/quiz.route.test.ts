@@ -54,6 +54,22 @@ class InMemoryLearningRepository implements LearningRepository {
 
   async recordContentProgress(): Promise<void> {}
 
+  async getModuleStatus(): ReturnType<LearningRepository['getModuleStatus']> {
+    return {
+      contentCount: 2,
+      completedContentCount: 2,
+      quizCount: this.questions.length,
+      quizUnlocked: true,
+      quizCompleted: false,
+      progressPercent: 67,
+      latestQuizResult: null,
+    };
+  }
+
+  async getStudentLegislationProgress(): ReturnType<LearningRepository['getStudentLegislationProgress']> {
+    return null;
+  }
+
   async listQuizQuestionsByModule(
     moduleId: number,
   ): Promise<LearningQuizQuestion[]> {
@@ -86,6 +102,24 @@ class InMemoryLearningRepository implements LearningRepository {
       total: questions.length,
       correct: results.filter((result) => result.correct).length,
       results,
+    };
+  }
+
+  async recordQuizAttempt(
+    studentId: number,
+    moduleId: number,
+    result: QuizSubmissionResult,
+  ): ReturnType<LearningRepository['recordQuizAttempt']> {
+    const percentageCorrect =
+      result.total > 0 ? Number(((result.correct / result.total) * 100).toFixed(2)) : 0;
+
+    return {
+      totalQuestions: result.total,
+      correctAnswers: result.correct,
+      wrongAnswers: result.total - result.correct,
+      percentageCorrect,
+      passed: percentageCorrect >= 70,
+      completedAt: new Date(),
     };
   }
 }

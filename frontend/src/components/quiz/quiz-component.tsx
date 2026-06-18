@@ -31,9 +31,10 @@ interface QuizComponentProps {
   questions: QuizQuestion[];
   onSubmit: (answers: Array<{ questionId: number; selectedOptionIndex: number }>) => Promise<QuizResult>;
   onClose: () => void;
+  onRetake?: () => void;
 }
 
-export function QuizComponent({ questions, onSubmit, onClose }: QuizComponentProps) {
+export function QuizComponent({ questions, onSubmit, onClose, onRetake }: QuizComponentProps) {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<{
     [questionId: number]: number;
@@ -78,6 +79,13 @@ export function QuizComponent({ questions, onSubmit, onClose }: QuizComponentPro
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleRetake = () => {
+    setCurrentQuestionIndex(0);
+    setAnswers({});
+    setResult(null);
+    onRetake?.();
   };
 
   if (result) {
@@ -180,6 +188,7 @@ export function QuizComponent({ questions, onSubmit, onClose }: QuizComponentPro
 
         {/* Actions */}
         <div className="flex gap-3 pt-4">
+          <Button onClick={handleRetake}>Refazer</Button>
           <Button onClick={onClose} variant="outline">
             Fechar
           </Button>

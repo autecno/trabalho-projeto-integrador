@@ -13,15 +13,27 @@ type ModuleDetail = {
   title: string;
   description: string;
   videosCount: number;
+  contentCount: number;
+  completedContentCount: number;
   progressPercent: number;
   contents: Array<{
     id: number;
     moduleId: number;
     title: string;
-    type: 'video' | 'text';
+    type: "video" | "text";
     summary: string | null;
   }>;
   quizCount: number;
+  quizUnlocked: boolean;
+  quizCompleted: boolean;
+  latestQuizResult: {
+    totalQuestions: number;
+    correctAnswers: number;
+    wrongAnswers: number;
+    percentageCorrect: number;
+    passed: boolean;
+    completedAt: string;
+  } | null;
 };
 
 export default function ModulePage() {
@@ -29,24 +41,24 @@ export default function ModulePage() {
   const router = useRouter();
   const token = getValidStoredToken();
   const [module, setModule] = useState<ModuleDetail | null>(null);
-  const [filter, setFilter] = useState<'all' | 'video' | 'text'>('all');
+  const [filter, setFilter] = useState<"all" | "video" | "text">("all");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const moduleId = Number(params.moduleId);
   const invalidModuleId = !Number.isFinite(moduleId) || moduleId <= 0;
-  const validationError = invalidModuleId ? 'moduleId inválido.' : null;
+  const validationError = invalidModuleId ? "moduleId invalido." : null;
   const filteredContents = useMemo(
     () =>
       module?.contents.filter((content) =>
-        filter === 'all' ? true : content.type === filter,
+        filter === "all" ? true : content.type === filter,
       ) ?? [],
     [module, filter],
   );
 
   useEffect(() => {
     if (!token) {
-      router.replace('/auth/login');
+      router.replace("/auth/login");
       return;
     }
 
@@ -60,35 +72,34 @@ export default function ModulePage() {
 
       try {
         const moduleResponse = await apiFetch(`/learning/modules/${moduleId}`);
-
         const modulePayload = await readApiJson<ModuleDetail>(
           moduleResponse,
-          'Não foi possível carregar o módulo.',
+          "Nao foi possivel carregar o modulo.",
         );
 
         setModule(modulePayload);
       } catch (err) {
-        setError(
-          getFriendlyErrorMessage(err, 'Falha ao carregar o módulo.'),
-        );
+        setError(getFriendlyErrorMessage(err, "Falha ao carregar o modulo."));
       } finally {
         setLoading(false);
       }
     };
 
-    loadData();
+    void loadData();
   }, [token, moduleId, invalidModuleId, router]);
 
   return (
     <main className="mx-auto min-h-screen max-w-6xl px-4 py-28">
       <div className="mb-8 flex flex-col gap-4">
         <div>
-          <h1 className="text-3xl font-semibold text-slate-900">{module?.title ?? 'Módulo'}</h1>
+          <h1 className="text-3xl font-semibold text-slate-900">
+            {module?.title ?? "Modulo"}
+          </h1>
           <p className="mt-2 text-slate-600">{module?.description}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link href="/learning">
-            <Button variant="outline">Voltar aos conteúdos</Button>
+            <Button variant="outline">Voltar aos conteudos</Button>
           </Link>
           <Link href="/dashboard">
             <Button variant="outline">Dashboard</Button>
@@ -96,7 +107,7 @@ export default function ModulePage() {
         </div>
       </div>
 
-      {loading && <p>Carregando módulo...</p>}
+      {loading && <p>Carregando modulo...</p>}
       {(error || validationError) && (
         <p className="text-rose-600">{error ?? validationError}</p>
       )}
@@ -116,7 +127,7 @@ export default function ModulePage() {
                     </p>
                   </div>
                   <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm text-slate-700">
-                    {module.videosCount} vídeos
+                    {module.completedContentCount}/{module.contentCount} conteudos
                   </span>
                 </div>
                 <div className="h-2 overflow-hidden rounded-full bg-slate-100">
@@ -131,20 +142,20 @@ export default function ModulePage() {
             <Card>
               <div className="flex flex-wrap gap-2">
                 <Button
-                  variant={filter === 'all' ? 'default' : 'outline'}
-                  onClick={() => setFilter('all')}
+                  variant={filter === "all" ? "default" : "outline"}
+                  onClick={() => setFilter("all")}
                 >
                   Todos
                 </Button>
                 <Button
-                  variant={filter === 'video' ? 'default' : 'outline'}
-                  onClick={() => setFilter('video')}
+                  variant={filter === "video" ? "default" : "outline"}
+                  onClick={() => setFilter("video")}
                 >
-                  Vídeos
+                  Videos
                 </Button>
                 <Button
-                  variant={filter === 'text' ? 'default' : 'outline'}
-                  onClick={() => setFilter('text')}
+                  variant={filter === "text" ? "default" : "outline"}
+                  onClick={() => setFilter("text")}
                 >
                   Texto
                 </Button>
@@ -153,7 +164,9 @@ export default function ModulePage() {
 
             {filteredContents.length === 0 && (
               <Card>
-                <p className="text-slate-600">Nenhum conteúdo disponível para este filtro.</p>
+                <p className="text-slate-600">
+                  Nenhum conteudo disponivel para este filtro.
+                </p>
               </Card>
             )}
 
@@ -162,7 +175,9 @@ export default function ModulePage() {
                 <div className="flex flex-col gap-3">
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <h2 className="text-xl font-semibold text-slate-900">{content.title}</h2>
+                      <h2 className="text-xl font-semibold text-slate-900">
+                        {content.title}
+                      </h2>
                       <p className="mt-2 text-sm text-slate-600">{content.summary}</p>
                     </div>
                     <Link href={`/learning/${moduleId}/${content.id}`}>
@@ -177,15 +192,36 @@ export default function ModulePage() {
           <aside className="space-y-6">
             <Card>
               <div className="space-y-4">
-                <h2 className="text-lg font-semibold text-slate-900">Simulado do módulo</h2>
+                <h2 className="text-lg font-semibold text-slate-900">
+                  Simulado do modulo
+                </h2>
                 <p className="text-slate-600">
-                  Pratique com questões de múltipla escolha para se preparar para a prova.
+                  Pratique com questoes de multipla escolha depois de concluir todos
+                  os conteudos.
                 </p>
-                <Link href={`/learning/${moduleId}/quiz`}>
-                  <Button className="w-full bg-blue-600 hover:bg-blue-700">
-                    Iniciar Prova
+
+                {module.latestQuizResult && (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                    <p className="font-semibold text-slate-900">Ultima nota</p>
+                    <p>
+                      {module.latestQuizResult.percentageCorrect}% de aproveitamento (
+                      {module.latestQuizResult.correctAnswers}/
+                      {module.latestQuizResult.totalQuestions} acertos).
+                    </p>
+                  </div>
+                )}
+
+                {module.quizUnlocked ? (
+                  <Link href={`/learning/${moduleId}/quiz`}>
+                    <Button className="w-full bg-blue-600 hover:bg-blue-700">
+                      {module.quizCompleted ? "Refazer Prova" : "Iniciar Prova"}
+                    </Button>
+                  </Link>
+                ) : (
+                  <Button className="w-full" disabled>
+                    Conclua todos os conteudos
                   </Button>
-                </Link>
+                )}
               </div>
             </Card>
           </aside>
