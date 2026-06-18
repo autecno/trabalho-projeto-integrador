@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildApp } from '../app';
+import type { FastifyInstance } from 'fastify';
 import {
   AppointmentRating,
   AppointmentRatingRepository,
@@ -329,6 +330,84 @@ async function createAppWithRepositories(options?: { jwtSecret?: string }) {
   };
 }
 
+function buildAuthHeaders(token: string) {
+  return {
+    authorization: `Bearer ${token}`,
+  };
+}
+
+async function loginAndGetToken(
+  app: FastifyInstance,
+  email: string,
+  password = '123456',
+) {
+  const response = await app.inject({
+    method: 'POST',
+    url: '/auth/login',
+    payload: {
+      email,
+      password,
+    },
+  });
+
+  assert.equal(response.statusCode, 200);
+  return response.json().token as string;
+}
+
+async function createAppointmentAsStudent(
+  app: FastifyInstance,
+  token: string,
+  instructorId: number,
+  scheduledAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+  notes?: string,
+) {
+  const response = await app.inject({
+    method: 'POST',
+    url: '/appointments',
+    headers: buildAuthHeaders(token),
+    payload: {
+      instructorId,
+      scheduledAt,
+      ...(notes ? { notes } : {}),
+    },
+  });
+
+  assert.equal(response.statusCode, 201);
+  return response.json();
+}
+
+async function updateAppointmentStatusAsInstructor(
+  app: FastifyInstance,
+  token: string,
+  appointmentId: number,
+  status: AppointmentStatus,
+) {
+  return app.inject({
+    method: 'PATCH',
+    url: `/appointments/${appointmentId}/status`,
+    headers: buildAuthHeaders(token),
+    payload: {
+      status,
+    },
+  });
+}
+
+async function rateAppointment(
+  app: FastifyInstance,
+  token: string,
+  appointmentId: number,
+  score: number,
+) {
+  return app.inject({
+    method: 'POST',
+    url: `/appointments/${appointmentId}/rating`,
+    headers: buildAuthHeaders(token),
+    payload: {
+      score,
+    },
+  });
+}
+
 test('POST /users creates a new user successfully', async () => {
   const { app, userRepository } = await createAppWithRepositories();
 
@@ -507,9 +586,7 @@ test('GET /instructors returns available instructors for authenticated users', a
   const response = await app.inject({
     method: 'GET',
     url: '/instructors',
-    headers: {
-      authorization: `Bearer ${loginResponse.json().token}`,
-    },
+    headers: buildAuthHeaders(loginResponse.json().token),
   });
 
   assert.equal(response.statusCode, 200);
@@ -566,32 +643,16 @@ test('POST /appointments allows student to create a valid appointment', async ()
     role: 'student',
   });
 
-  const loginResponse = await app.inject({
-    method: 'POST',
-    url: '/auth/login',
-    payload: {
-      email: 'aluno.pedro@example.com',
-      password: '123456',
-    },
-  });
-
-  const futureDate = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-  const response = await app.inject({
-    method: 'POST',
-    url: '/appointments',
-    headers: {
-      authorization: `Bearer ${loginResponse.json().token}`,
-    },
-    payload: {
-      instructorId: instructor.id,
-      scheduledAt: futureDate,
-      notes: 'Aula de baliza',
-    },
-  });
-
-  assert.equal(response.statusCode, 201);
-  assert.equal(response.json().instructorId, instructor.id);
-  assert.equal(response.json().status, 'pending');
+  const studentToken = await loginAndGetToken(app, 'aluno.pedro@example.com');
+  const response = await createAppointmentAsStudent(
+    app,
+    studentToken,
+    instructor.id,
+    new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    'Aula de baliza',
+  );
+  assert.equal(response.instructorId, instructor.id);
+  assert.equal(response.status, 'pending');
 
   await app.close();
 });
@@ -607,21 +668,12 @@ test('POST /appointments blocks creation for instructors', async () => {
     role: 'instructor',
   });
 
-  const loginResponse = await app.inject({
-    method: 'POST',
-    url: '/auth/login',
-    payload: {
-      email: 'instrutor.bruno@example.com',
-      password: '123456',
-    },
-  });
+  const instructorToken = await loginAndGetToken(app, 'instrutor.bruno@example.com');
 
   const response = await app.inject({
     method: 'POST',
     url: '/appointments',
-    headers: {
-      authorization: `Bearer ${loginResponse.json().token}`,
-    },
+    headers: buildAuthHeaders(instructorToken),
     payload: {
       instructorId: 1,
       scheduledAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
@@ -653,47 +705,21 @@ test('PATCH /appointments/:id/status lets instructor confirm own appointment', a
     role: 'student',
   });
 
-  const studentLogin = await app.inject({
-    method: 'POST',
-    url: '/auth/login',
-    payload: {
-      email: 'aluno.lucas@example.com',
-      password: '123456',
-    },
-  });
+  const studentToken = await loginAndGetToken(app, 'aluno.lucas@example.com');
+  const createResponse = await createAppointmentAsStudent(
+    app,
+    studentToken,
+    instructor.id,
+  );
+  const instructorToken = await loginAndGetToken(app, 'instrutora.cida@example.com');
 
-  const createResponse = await app.inject({
-    method: 'POST',
-    url: '/appointments',
-    headers: {
-      authorization: `Bearer ${studentLogin.json().token}`,
-    },
-    payload: {
-      instructorId: instructor.id,
-      scheduledAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
-    },
-  });
-
-  const instructorLogin = await app.inject({
-    method: 'POST',
-    url: '/auth/login',
-    payload: {
-      email: 'instrutora.cida@example.com',
-      password: '123456',
-    },
-  });
-
-  const appointmentId = createResponse.json().id;
-  const patchResponse = await app.inject({
-    method: 'PATCH',
-    url: `/appointments/${appointmentId}/status`,
-    headers: {
-      authorization: `Bearer ${instructorLogin.json().token}`,
-    },
-    payload: {
-      status: 'confirmed' as AppointmentStatus,
-    },
-  });
+  const appointmentId = createResponse.id;
+  const patchResponse = await updateAppointmentStatusAsInstructor(
+    app,
+    instructorToken,
+    appointmentId,
+    'confirmed',
+  );
 
   assert.equal(patchResponse.statusCode, 200);
   assert.equal(patchResponse.json().status, 'confirmed');
@@ -718,69 +744,24 @@ test('POST /appointments/:id/rating allows both sides to rate after a completed 
     role: 'student',
   });
 
-  const studentLogin = await app.inject({
-    method: 'POST',
-    url: '/auth/login',
-    payload: {
-      email: student.email,
-      password: '123456',
-    },
-  });
-  const instructorLogin = await app.inject({
-    method: 'POST',
-    url: '/auth/login',
-    payload: {
-      email: instructor.email,
-      password: '123456',
-    },
-  });
+  const studentToken = await loginAndGetToken(app, student.email);
+  const instructorToken = await loginAndGetToken(app, instructor.email);
+  const createResponse = await createAppointmentAsStudent(
+    app,
+    studentToken,
+    instructor.id,
+  );
+  const appointmentId = createResponse.id;
 
-  const createResponse = await app.inject({
-    method: 'POST',
-    url: '/appointments',
-    headers: {
-      authorization: `Bearer ${studentLogin.json().token}`,
-    },
-    payload: {
-      instructorId: instructor.id,
-      scheduledAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
-    },
-  });
+  await updateAppointmentStatusAsInstructor(app, instructorToken, appointmentId, 'confirmed');
+  await updateAppointmentStatusAsInstructor(app, instructorToken, appointmentId, 'completed');
 
-  const appointmentId = createResponse.json().id;
-
-  await app.inject({
-    method: 'PATCH',
-    url: `/appointments/${appointmentId}/status`,
-    headers: {
-      authorization: `Bearer ${instructorLogin.json().token}`,
-    },
-    payload: {
-      status: 'confirmed' as AppointmentStatus,
-    },
-  });
-
-  await app.inject({
-    method: 'PATCH',
-    url: `/appointments/${appointmentId}/status`,
-    headers: {
-      authorization: `Bearer ${instructorLogin.json().token}`,
-    },
-    payload: {
-      status: 'completed' as AppointmentStatus,
-    },
-  });
-
-  const studentRatingResponse = await app.inject({
-    method: 'POST',
-    url: `/appointments/${appointmentId}/rating`,
-    headers: {
-      authorization: `Bearer ${studentLogin.json().token}`,
-    },
-    payload: {
-      score: 5,
-    },
-  });
+  const studentRatingResponse = await rateAppointment(
+    app,
+    studentToken,
+    appointmentId,
+    5,
+  );
 
   assert.equal(studentRatingResponse.statusCode, 201);
   assert.deepEqual(studentRatingResponse.json(), {
@@ -793,16 +774,12 @@ test('POST /appointments/:id/rating allows both sides to rate after a completed 
     totalRatings: 1,
   });
 
-  const instructorRatingResponse = await app.inject({
-    method: 'POST',
-    url: `/appointments/${appointmentId}/rating`,
-    headers: {
-      authorization: `Bearer ${instructorLogin.json().token}`,
-    },
-    payload: {
-      score: 4,
-    },
-  });
+  const instructorRatingResponse = await rateAppointment(
+    app,
+    instructorToken,
+    appointmentId,
+    4,
+  );
 
   assert.equal(instructorRatingResponse.statusCode, 201);
   assert.deepEqual(instructorRatingResponse.json(), {
@@ -818,9 +795,7 @@ test('POST /appointments/:id/rating allows both sides to rate after a completed 
   const instructorsResponse = await app.inject({
     method: 'GET',
     url: '/instructors',
-    headers: {
-      authorization: `Bearer ${studentLogin.json().token}`,
-    },
+    headers: buildAuthHeaders(studentToken),
   });
 
   assert.equal(instructorsResponse.statusCode, 200);
@@ -836,9 +811,7 @@ test('POST /appointments/:id/rating allows both sides to rate after a completed 
   const studentAppointmentsResponse = await app.inject({
     method: 'GET',
     url: '/appointments',
-    headers: {
-      authorization: `Bearer ${studentLogin.json().token}`,
-    },
+    headers: buildAuthHeaders(studentToken),
   });
 
   assert.equal(studentAppointmentsResponse.statusCode, 200);
@@ -850,9 +823,7 @@ test('POST /appointments/:id/rating allows both sides to rate after a completed 
   const instructorAppointmentsResponse = await app.inject({
     method: 'GET',
     url: '/appointments',
-    headers: {
-      authorization: `Bearer ${instructorLogin.json().token}`,
-    },
+    headers: buildAuthHeaders(instructorToken),
   });
 
   assert.equal(instructorAppointmentsResponse.statusCode, 200);
@@ -881,87 +852,34 @@ test('POST /appointments/:id/rating blocks rating before completion and duplicat
     role: 'student',
   });
 
-  const studentLogin = await app.inject({
-    method: 'POST',
-    url: '/auth/login',
-    payload: {
-      email: student.email,
-      password: '123456',
-    },
-  });
-  const instructorLogin = await app.inject({
-    method: 'POST',
-    url: '/auth/login',
-    payload: {
-      email: instructor.email,
-      password: '123456',
-    },
-  });
+  const studentToken = await loginAndGetToken(app, student.email);
+  const instructorToken = await loginAndGetToken(app, instructor.email);
+  const createResponse = await createAppointmentAsStudent(
+    app,
+    studentToken,
+    instructor.id,
+  );
+  const appointmentId = createResponse.id;
 
-  const createResponse = await app.inject({
-    method: 'POST',
-    url: '/appointments',
-    headers: {
-      authorization: `Bearer ${studentLogin.json().token}`,
-    },
-    payload: {
-      instructorId: instructor.id,
-      scheduledAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
-    },
-  });
-
-  const appointmentId = createResponse.json().id;
-
-  const earlyRatingResponse = await app.inject({
-    method: 'POST',
-    url: `/appointments/${appointmentId}/rating`,
-    headers: {
-      authorization: `Bearer ${studentLogin.json().token}`,
-    },
-    payload: {
-      score: 5,
-    },
-  });
+  const earlyRatingResponse = await rateAppointment(app, studentToken, appointmentId, 5);
 
   assert.equal(earlyRatingResponse.statusCode, 409);
   assert.deepEqual(earlyRatingResponse.json(), {
     message: 'A aula precisa estar concluída para receber avaliação.',
   });
 
-  await app.inject({
-    method: 'PATCH',
-    url: `/appointments/${appointmentId}/status`,
-    headers: {
-      authorization: `Bearer ${instructorLogin.json().token}`,
-    },
-    payload: {
-      status: 'completed' as AppointmentStatus,
-    },
-  });
+  await updateAppointmentStatusAsInstructor(app, instructorToken, appointmentId, 'completed');
 
-  const firstRatingResponse = await app.inject({
-    method: 'POST',
-    url: `/appointments/${appointmentId}/rating`,
-    headers: {
-      authorization: `Bearer ${studentLogin.json().token}`,
-    },
-    payload: {
-      score: 5,
-    },
-  });
+  const firstRatingResponse = await rateAppointment(app, studentToken, appointmentId, 5);
 
   assert.equal(firstRatingResponse.statusCode, 201);
 
-  const duplicateRatingResponse = await app.inject({
-    method: 'POST',
-    url: `/appointments/${appointmentId}/rating`,
-    headers: {
-      authorization: `Bearer ${studentLogin.json().token}`,
-    },
-    payload: {
-      score: 4,
-    },
-  });
+  const duplicateRatingResponse = await rateAppointment(
+    app,
+    studentToken,
+    appointmentId,
+    4,
+  );
 
   assert.equal(duplicateRatingResponse.statusCode, 409);
   assert.deepEqual(duplicateRatingResponse.json(), {
