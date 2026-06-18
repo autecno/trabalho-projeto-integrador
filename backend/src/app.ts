@@ -9,6 +9,7 @@ import { registerNotificationsRoutes } from './routes/notifications.route';
 import { registerProfileRoutes } from './routes/profile.route';
 import { registerQuizRoutes } from './routes/quiz.route';
 import { registerUserRoutes } from './routes/users.route';
+import { AppointmentRatingRepository } from './repositories/appointment-rating.repository';
 import { AppointmentRepository } from './repositories/appointment.repository';
 import { LearningRepository } from './repositories/learning.repository';
 import { NotificationRepository } from './repositories/notification.repository';
@@ -20,6 +21,7 @@ type BuildAppOptions = {
   appointmentRepository: AppointmentRepository;
   learningRepository: LearningRepository;
   notificationRepository?: NotificationRepository;
+  appointmentRatingRepository?: AppointmentRatingRepository;
   jwtSecret?: string;
   appointmentReminderQueue?: AppointmentReminderQueue;
 };
@@ -27,6 +29,8 @@ type BuildAppOptions = {
 export async function buildApp(options: BuildAppOptions) {
   const fastify = Fastify({ logger: true });
   const jwtSecret = options.jwtSecret ?? process.env.JWT_SECRET ?? 'supersecretjwt';
+  const appointmentRatingRepository =
+    options.appointmentRatingRepository ?? inMemoryEmptyAppointmentRatingRepository;
 
   await fastify.register(cors, {
     origin: '*',
@@ -58,11 +62,13 @@ export async function buildApp(options: BuildAppOptions) {
   await registerInstructorRoutes(fastify, {
     jwtSecret,
     userRepository: options.userRepository,
+    appointmentRatingRepository,
   });
   await registerAppointmentsRoutes(fastify, {
     jwtSecret,
     userRepository: options.userRepository,
     appointmentRepository: options.appointmentRepository,
+    appointmentRatingRepository,
     ...(options.notificationRepository
       ? { notificationRepository: options.notificationRepository }
       : {}),
@@ -76,3 +82,19 @@ export async function buildApp(options: BuildAppOptions) {
 
   return fastify;
 }
+
+const inMemoryEmptyAppointmentRatingRepository: AppointmentRatingRepository = {
+  async ensureSchema() {},
+  async create() {
+    throw new Error('Appointment ratings repository is not configured.');
+  },
+  async findByAppointmentAndEvaluator() {
+    return null;
+  },
+  async listByAppointmentIdsForEvaluator() {
+    return [];
+  },
+  async listReceivedSummariesByUserIds() {
+    return [];
+  },
+};

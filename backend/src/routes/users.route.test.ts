@@ -2,200 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildApp } from '../app';
 import {
-  Appointment,
-  AppointmentRepository,
   AppointmentStatus,
-  AppointmentWithNames,
-  CreateAppointmentData,
-  InstructorAvailability,
-  UpdateAppointmentStatusData,
-  UpsertInstructorAvailabilityData,
 } from '../repositories/appointment.repository';
-import {
-  CreateUserData,
-  User,
-  UserRepository,
-} from '../repositories/user.repository';
 import { LearningRepository } from '../repositories/learning.repository';
 import { hashPassword } from '../services/password.service';
-
-class InMemoryUserRepository implements UserRepository {
-  private users: User[] = [];
-  private sequence = 1;
-
-  async create(data: CreateUserData): Promise<User> {
-    const user: User = {
-      id: this.sequence++,
-      name: data.name,
-      email: data.email,
-      passwordHash: data.passwordHash,
-      role: data.role,
-      createdAt: new Date(),
-    };
-
-    this.users.push(user);
-
-    return user;
-  }
-
-  async findByEmail(email: string): Promise<User | null> {
-    return this.users.find((user) => user.email === email) ?? null;
-  }
-
-  async findById(id: number): Promise<User | null> {
-    return this.users.find((user) => user.id === id) ?? null;
-  }
-
-  async listInstructors() {
-    return this.users
-      .filter((user) => user.role === 'instructor')
-      .map((user) => ({
-        id: user.id,
-        name: user.name,
-      }));
-  }
-
-  list() {
-    return this.users;
-  }
-}
-
-class InMemoryAppointmentRepository implements AppointmentRepository {
-  private appointments: Appointment[] = [];
-  private sequence = 1;
-
-  constructor(private readonly userRepository: InMemoryUserRepository) {}
-
-  async ensureSchema() {}
-
-  async create(data: CreateAppointmentData): Promise<Appointment> {
-    const now = new Date();
-    const appointment: Appointment = {
-      id: this.sequence++,
-      studentId: data.studentId,
-      instructorId: data.instructorId,
-      scheduledAt: data.scheduledAt,
-      status: 'pending',
-      notes: data.notes ?? null,
-      cancellationReason: null,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    this.appointments.push(appointment);
-    return appointment;
-  }
-
-  async findById(id: number): Promise<AppointmentWithNames | null> {
-    const appointment = this.appointments.find((item) => item.id === id);
-    if (!appointment) {
-      return null;
-    }
-
-    return this.mapWithNames(appointment);
-  }
-
-  async findNextByStudent(
-    studentId: number,
-    referenceDate: Date,
-  ): Promise<AppointmentWithNames | null> {
-    const appointment = this.appointments
-      .filter(
-        (item) =>
-          item.studentId === studentId &&
-          item.scheduledAt > referenceDate &&
-          ['pending', 'confirmed'].includes(item.status),
-      )
-      .sort((first, second) => first.scheduledAt.getTime() - second.scheduledAt.getTime())[0];
-
-    return appointment ? this.mapWithNames(appointment) : null;
-  }
-
-  async listByStudent(studentId: number): Promise<AppointmentWithNames[]> {
-    return this.appointments
-      .filter((appointment) => appointment.studentId === studentId)
-      .map((appointment) => this.mapWithNames(appointment));
-  }
-
-  async listByInstructor(instructorId: number): Promise<AppointmentWithNames[]> {
-    return this.appointments
-      .filter((appointment) => appointment.instructorId === instructorId)
-      .map((appointment) => this.mapWithNames(appointment));
-  }
-
-  async listForInstructorOnDate(
-    instructorId: number,
-    dateStart: Date,
-    dateEnd: Date,
-  ): Promise<Appointment[]> {
-    return this.appointments.filter(
-      (appointment) =>
-        appointment.instructorId === instructorId &&
-        appointment.scheduledAt >= dateStart &&
-        appointment.scheduledAt < dateEnd,
-    );
-  }
-
-  async hasConflict(instructorId: number, scheduledAt: Date): Promise<boolean> {
-    return this.appointments.some(
-      (appointment) =>
-        appointment.instructorId === instructorId &&
-        Math.abs(appointment.scheduledAt.getTime() - scheduledAt.getTime()) <
-          60 * 60 * 1000 &&
-        ['pending', 'confirmed'].includes(appointment.status),
-    );
-  }
-
-  async listAvailabilityByInstructor(): Promise<InstructorAvailability[]> {
-    return [];
-  }
-
-  async replaceAvailability(
-    instructorId: number,
-    intervals: UpsertInstructorAvailabilityData[],
-  ): Promise<InstructorAvailability[]> {
-    return intervals.map((interval, index) => ({
-      id: index + 1,
-      instructorId,
-      weekday: interval.weekday,
-      startTime: interval.startTime,
-      endTime: interval.endTime,
-    }));
-  }
-
-  async isInstructorAvailableAt(): Promise<boolean> {
-    return true;
-  }
-
-  async updateStatus(
-    id: number,
-    data: UpdateAppointmentStatusData,
-  ): Promise<AppointmentWithNames | null> {
-    const appointment = this.appointments.find((item) => item.id === id);
-    if (!appointment) {
-      return null;
-    }
-
-    appointment.status = data.status;
-    appointment.cancellationReason = data.cancellationReason ?? null;
-    appointment.updatedAt = new Date();
-
-    return this.mapWithNames(appointment);
-  }
-
-  private mapWithNames(appointment: Appointment): AppointmentWithNames {
-    const student = this.userRepository.list().find((u) => u.id === appointment.studentId);
-    const instructor = this.userRepository
-      .list()
-      .find((u) => u.id === appointment.instructorId);
-
-    return {
-      ...appointment,
-      studentName: student?.name ?? 'Aluno',
-      instructorName: instructor?.name ?? 'Instrutor',
-    };
-  }
-}
+import {
+  InMemoryAppointmentRatingRepository,
+  InMemoryAppointmentRepository,
+  InMemoryUserRepository,
+  buildAuthHeaders,
+  createAppointmentAsStudent,
+  loginAndGetToken,
+  rateAppointment,
+  updateAppointmentStatusAsInstructor,
+} from './test-helpers';
 
 class InMemoryLearningRepository implements LearningRepository {
   async ensureSchema() {}
@@ -226,24 +46,21 @@ async function createAppWithRepositories(options?: { jwtSecret?: string }) {
   const userRepository = new InMemoryUserRepository();
   const appointmentRepository = new InMemoryAppointmentRepository(userRepository);
   const learningRepository = new InMemoryLearningRepository();
-  const appOptions =
-    options?.jwtSecret !== undefined
-      ? {
-          userRepository,
-          appointmentRepository,
-          learningRepository,
-          jwtSecret: options.jwtSecret,
-        }
-      : {
-          userRepository,
-          appointmentRepository,
-          learningRepository,
-        };
+  const appointmentRatingRepository = new InMemoryAppointmentRatingRepository();
   const app = await buildApp({
-    ...appOptions,
+    userRepository,
+    appointmentRepository,
+    learningRepository,
+    appointmentRatingRepository,
+    ...(options?.jwtSecret !== undefined ? { jwtSecret: options.jwtSecret } : {}),
   });
 
-  return { app, userRepository, appointmentRepository };
+  return {
+    app,
+    userRepository,
+    appointmentRepository,
+    appointmentRatingRepository,
+  };
 }
 
 test('POST /users creates a new user successfully', async () => {
@@ -424,9 +241,7 @@ test('GET /instructors returns available instructors for authenticated users', a
   const response = await app.inject({
     method: 'GET',
     url: '/instructors',
-    headers: {
-      authorization: `Bearer ${loginResponse.json().token}`,
-    },
+    headers: buildAuthHeaders(loginResponse.json().token),
   });
 
   assert.equal(response.statusCode, 200);
@@ -434,10 +249,14 @@ test('GET /instructors returns available instructors for authenticated users', a
     {
       id: 1,
       name: 'Ana Instrutora',
+      averageRating: null,
+      totalRatings: 0,
     },
     {
       id: 2,
       name: 'Bruno Instrutor',
+      averageRating: null,
+      totalRatings: 0,
     },
   ]);
 
@@ -479,32 +298,16 @@ test('POST /appointments allows student to create a valid appointment', async ()
     role: 'student',
   });
 
-  const loginResponse = await app.inject({
-    method: 'POST',
-    url: '/auth/login',
-    payload: {
-      email: 'aluno.pedro@example.com',
-      password: '123456',
-    },
-  });
-
-  const futureDate = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-  const response = await app.inject({
-    method: 'POST',
-    url: '/appointments',
-    headers: {
-      authorization: `Bearer ${loginResponse.json().token}`,
-    },
-    payload: {
-      instructorId: instructor.id,
-      scheduledAt: futureDate,
-      notes: 'Aula de baliza',
-    },
-  });
-
-  assert.equal(response.statusCode, 201);
-  assert.equal(response.json().instructorId, instructor.id);
-  assert.equal(response.json().status, 'pending');
+  const studentToken = await loginAndGetToken(app, 'aluno.pedro@example.com');
+  const response = await createAppointmentAsStudent(
+    app,
+    studentToken,
+    instructor.id,
+    new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    'Aula de baliza',
+  );
+  assert.equal(response.instructorId, instructor.id);
+  assert.equal(response.status, 'pending');
 
   await app.close();
 });
@@ -520,21 +323,12 @@ test('POST /appointments blocks creation for instructors', async () => {
     role: 'instructor',
   });
 
-  const loginResponse = await app.inject({
-    method: 'POST',
-    url: '/auth/login',
-    payload: {
-      email: 'instrutor.bruno@example.com',
-      password: '123456',
-    },
-  });
+  const instructorToken = await loginAndGetToken(app, 'instrutor.bruno@example.com');
 
   const response = await app.inject({
     method: 'POST',
     url: '/appointments',
-    headers: {
-      authorization: `Bearer ${loginResponse.json().token}`,
-    },
+    headers: buildAuthHeaders(instructorToken),
     payload: {
       instructorId: 1,
       scheduledAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
@@ -566,50 +360,186 @@ test('PATCH /appointments/:id/status lets instructor confirm own appointment', a
     role: 'student',
   });
 
-  const studentLogin = await app.inject({
-    method: 'POST',
-    url: '/auth/login',
-    payload: {
-      email: 'aluno.lucas@example.com',
-      password: '123456',
-    },
-  });
+  const studentToken = await loginAndGetToken(app, 'aluno.lucas@example.com');
+  const createResponse = await createAppointmentAsStudent(
+    app,
+    studentToken,
+    instructor.id,
+  );
+  const instructorToken = await loginAndGetToken(app, 'instrutora.cida@example.com');
 
-  const createResponse = await app.inject({
-    method: 'POST',
-    url: '/appointments',
-    headers: {
-      authorization: `Bearer ${studentLogin.json().token}`,
-    },
-    payload: {
-      instructorId: instructor.id,
-      scheduledAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
-    },
-  });
-
-  const instructorLogin = await app.inject({
-    method: 'POST',
-    url: '/auth/login',
-    payload: {
-      email: 'instrutora.cida@example.com',
-      password: '123456',
-    },
-  });
-
-  const appointmentId = createResponse.json().id;
-  const patchResponse = await app.inject({
-    method: 'PATCH',
-    url: `/appointments/${appointmentId}/status`,
-    headers: {
-      authorization: `Bearer ${instructorLogin.json().token}`,
-    },
-    payload: {
-      status: 'confirmed' as AppointmentStatus,
-    },
-  });
+  const appointmentId = createResponse.id;
+  const patchResponse = await updateAppointmentStatusAsInstructor(
+    app,
+    instructorToken,
+    appointmentId,
+    'confirmed',
+  );
 
   assert.equal(patchResponse.statusCode, 200);
   assert.equal(patchResponse.json().status, 'confirmed');
+
+  await app.close();
+});
+
+test('POST /appointments/:id/rating allows both sides to rate after a completed lesson', async () => {
+  const { app, userRepository } = await createAppWithRepositories({
+    jwtSecret: 'test-secret',
+  });
+  const instructor = await userRepository.create({
+    name: 'Instrutora Lia',
+    email: 'instrutora.lia@example.com',
+    passwordHash: hashPassword('123456'),
+    role: 'instructor',
+  });
+  const student = await userRepository.create({
+    name: 'Aluno Ravi',
+    email: 'aluno.ravi@example.com',
+    passwordHash: hashPassword('123456'),
+    role: 'student',
+  });
+
+  const studentToken = await loginAndGetToken(app, student.email);
+  const instructorToken = await loginAndGetToken(app, instructor.email);
+  const createResponse = await createAppointmentAsStudent(
+    app,
+    studentToken,
+    instructor.id,
+  );
+  const appointmentId = createResponse.id;
+
+  await updateAppointmentStatusAsInstructor(app, instructorToken, appointmentId, 'confirmed');
+  await updateAppointmentStatusAsInstructor(app, instructorToken, appointmentId, 'completed');
+
+  const studentRatingResponse = await rateAppointment(
+    app,
+    studentToken,
+    appointmentId,
+    5,
+  );
+
+  assert.equal(studentRatingResponse.statusCode, 201);
+  assert.deepEqual(studentRatingResponse.json(), {
+    id: 1,
+    appointmentId,
+    evaluatorUserId: student.id,
+    evaluatedUserId: instructor.id,
+    score: 5,
+    averageRating: 5,
+    totalRatings: 1,
+  });
+
+  const instructorRatingResponse = await rateAppointment(
+    app,
+    instructorToken,
+    appointmentId,
+    4,
+  );
+
+  assert.equal(instructorRatingResponse.statusCode, 201);
+  assert.deepEqual(instructorRatingResponse.json(), {
+    id: 2,
+    appointmentId,
+    evaluatorUserId: instructor.id,
+    evaluatedUserId: student.id,
+    score: 4,
+    averageRating: 4,
+    totalRatings: 1,
+  });
+
+  const instructorsResponse = await app.inject({
+    method: 'GET',
+    url: '/instructors',
+    headers: buildAuthHeaders(studentToken),
+  });
+
+  assert.equal(instructorsResponse.statusCode, 200);
+  assert.deepEqual(instructorsResponse.json(), [
+    {
+      id: instructor.id,
+      name: instructor.name,
+      averageRating: 5,
+      totalRatings: 1,
+    },
+  ]);
+
+  const studentAppointmentsResponse = await app.inject({
+    method: 'GET',
+    url: '/appointments',
+    headers: buildAuthHeaders(studentToken),
+  });
+
+  assert.equal(studentAppointmentsResponse.statusCode, 200);
+  assert.equal(studentAppointmentsResponse.json()[0].counterpartAverageRating, 5);
+  assert.equal(studentAppointmentsResponse.json()[0].counterpartTotalRatings, 1);
+  assert.equal(studentAppointmentsResponse.json()[0].currentUserRatingScore, 5);
+  assert.equal(studentAppointmentsResponse.json()[0].canCurrentUserRate, false);
+
+  const instructorAppointmentsResponse = await app.inject({
+    method: 'GET',
+    url: '/appointments',
+    headers: buildAuthHeaders(instructorToken),
+  });
+
+  assert.equal(instructorAppointmentsResponse.statusCode, 200);
+  assert.equal(instructorAppointmentsResponse.json()[0].counterpartAverageRating, 4);
+  assert.equal(instructorAppointmentsResponse.json()[0].counterpartTotalRatings, 1);
+  assert.equal(instructorAppointmentsResponse.json()[0].currentUserRatingScore, 4);
+  assert.equal(instructorAppointmentsResponse.json()[0].canCurrentUserRate, false);
+
+  await app.close();
+});
+
+test('POST /appointments/:id/rating blocks rating before completion and duplicate submissions', async () => {
+  const { app, userRepository } = await createAppWithRepositories({
+    jwtSecret: 'test-secret',
+  });
+  const instructor = await userRepository.create({
+    name: 'Instrutor Ivo',
+    email: 'instrutor.ivo@example.com',
+    passwordHash: hashPassword('123456'),
+    role: 'instructor',
+  });
+  const student = await userRepository.create({
+    name: 'Aluno Nilo',
+    email: 'aluno.nilo@example.com',
+    passwordHash: hashPassword('123456'),
+    role: 'student',
+  });
+
+  const studentToken = await loginAndGetToken(app, student.email);
+  const instructorToken = await loginAndGetToken(app, instructor.email);
+  const createResponse = await createAppointmentAsStudent(
+    app,
+    studentToken,
+    instructor.id,
+  );
+  const appointmentId = createResponse.id;
+
+  const earlyRatingResponse = await rateAppointment(app, studentToken, appointmentId, 5);
+
+  assert.equal(earlyRatingResponse.statusCode, 409);
+  assert.deepEqual(earlyRatingResponse.json(), {
+    message: 'A aula precisa estar concluída para receber avaliação.',
+  });
+
+  await updateAppointmentStatusAsInstructor(app, instructorToken, appointmentId, 'completed');
+
+  const firstRatingResponse = await rateAppointment(app, studentToken, appointmentId, 5);
+
+  assert.equal(firstRatingResponse.statusCode, 201);
+
+  const duplicateRatingResponse = await rateAppointment(
+    app,
+    studentToken,
+    appointmentId,
+    4,
+  );
+
+  assert.equal(duplicateRatingResponse.statusCode, 409);
+  assert.deepEqual(duplicateRatingResponse.json(), {
+    message: 'Você já avaliou esta aula.',
+  });
 
   await app.close();
 });
