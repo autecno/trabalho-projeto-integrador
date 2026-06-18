@@ -24,40 +24,14 @@ type ModuleDetail = {
   quizCount: number;
 };
 
-type QuizQuestion = {
-  id: number;
-  moduleId: number;
-  prompt: string;
-  options: string[];
-  explanation: string | null;
-};
-
-type QuizAnswerState = Record<number, number>;
-
-type QuizResult = {
-  total: number;
-  correct: number;
-  results: Array<{
-    questionId: number;
-    correct: boolean;
-    selectedOptionIndex: number;
-    correctOptionIndex: number;
-    explanation: string | null;
-  }>;
-};
-
 export default function ModulePage() {
   const params = useParams<{ moduleId: string }>();
   const router = useRouter();
   const token = getValidStoredToken();
   const [module, setModule] = useState<ModuleDetail | null>(null);
-  const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
-  const [selectedAnswers, setSelectedAnswers] = useState<QuizAnswerState>({});
-  const [quizResult, setQuizResult] = useState<QuizResult | null>(null);
   const [filter, setFilter] = useState<'all' | 'video' | 'text'>('all');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
 
   const moduleId = Number(params.moduleId);
   const invalidModuleId = !Number.isFinite(moduleId) || moduleId <= 0;
@@ -85,23 +59,14 @@ export default function ModulePage() {
       setError(null);
 
       try {
-        const [moduleResponse, quizResponse] = await Promise.all([
-          apiFetch(`/learning/modules/${moduleId}`),
-          apiFetch(`/learning/modules/${moduleId}/quiz`),
-        ]);
+        const moduleResponse = await apiFetch(`/learning/modules/${moduleId}`);
 
         const modulePayload = await readApiJson<ModuleDetail>(
           moduleResponse,
           'Não foi possível carregar o módulo.',
         );
 
-        const quizPayload = await readApiJson<QuizQuestion[]>(
-          quizResponse,
-          'Não foi possível carregar o simulado.',
-        );
-
         setModule(modulePayload);
-        setQuizQuestions(quizPayload);
       } catch (err) {
         setError(
           getFriendlyErrorMessage(err, 'Falha ao carregar o módulo.'),
