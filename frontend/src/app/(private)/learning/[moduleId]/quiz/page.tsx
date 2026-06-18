@@ -13,6 +13,8 @@ export default function QuizPage() {
   const router = useRouter();
   const token = getValidStoredToken();
   const moduleId = Number(params.moduleId);
+  const invalidModuleId = !Number.isFinite(moduleId) || moduleId <= 0;
+  const validationError = invalidModuleId ? 'ID do modulo invalido.' : null;
 
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
   const [loading, setLoading] = useState(true);
@@ -25,11 +27,7 @@ export default function QuizPage() {
       return;
     }
 
-    if (!Number.isFinite(moduleId) || moduleId <= 0) {
-      setError('ID do módulo inválido.');
-      setLoading(false);
-      return;
-    }
+    if (invalidModuleId) return;
 
     const loadQuestions = async () => {
       try {
@@ -39,7 +37,7 @@ export default function QuizPage() {
         const response = await apiFetch(`/quiz/modules/${moduleId}/start`);
         const data = await readApiJson<{ questions: QuizQuestion[] }>(
           response,
-          'Erro ao carregar as questões',
+          'Erro ao carregar as questoes',
         );
 
         setQuestions(data.questions);
@@ -51,10 +49,10 @@ export default function QuizPage() {
     };
 
     loadQuestions();
-  }, [token, moduleId, router]);
+  }, [token, moduleId, invalidModuleId, router]);
 
   const handleSubmitQuiz = async (
-    answers: Array<{ questionId: number; selectedOptionIndex: number }>
+    answers: Array<{ questionId: number; selectedOptionIndex: number }>,
   ): Promise<QuizResult> => {
     const response = await apiFetch(`/quiz/modules/${moduleId}/submit`, {
       method: 'POST',
@@ -77,6 +75,22 @@ export default function QuizPage() {
       <div className="flex min-h-screen items-center justify-center">
         <Card className="max-w-md">
           <p className="text-gray-600">Redirecionando...</p>
+        </Card>
+      </div>
+    );
+  }
+
+  if (validationError) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Card className="max-w-md">
+          <div className="space-y-4">
+            <p className="font-semibold text-red-600">Erro ao carregar simulado</p>
+            <p className="text-gray-600">{validationError}</p>
+            <Button onClick={() => router.back()} variant="outline">
+              Voltar
+            </Button>
+          </div>
         </Card>
       </div>
     );
@@ -113,8 +127,8 @@ export default function QuizPage() {
       <div className="flex min-h-screen items-center justify-center">
         <Card className="max-w-md">
           <div className="space-y-4">
-            <p className="font-semibold text-gray-900">Nenhuma questão disponível</p>
-            <p className="text-gray-600">Este módulo não possui simulado disponível</p>
+            <p className="font-semibold text-gray-900">Nenhuma questao disponivel</p>
+            <p className="text-gray-600">Este modulo nao possui simulado disponivel</p>
             <Button onClick={() => router.back()} variant="outline">
               Voltar
             </Button>
@@ -128,11 +142,11 @@ export default function QuizPage() {
     <main className="mx-auto min-h-screen max-w-6xl px-4 py-8">
       <div className="mb-6">
         <Button onClick={() => router.back()} variant="outline" className="mb-4">
-          ← Voltar
+          Voltar
         </Button>
-        <h1 className="text-3xl font-bold text-gray-900">Simulado Teórico</h1>
+        <h1 className="text-3xl font-bold text-gray-900">Simulado Teorico</h1>
         <p className="mt-2 text-gray-600">
-          {questions.length} questões de múltipla escolha
+          {questions.length} questoes de multipla escolha
         </p>
       </div>
 
@@ -144,14 +158,14 @@ export default function QuizPage() {
                 Bem-vindo ao Simulado!
               </h2>
               <div className="space-y-3 text-gray-700">
-                <p>Este é um simulado teórico com as seguintes características:</p>
+                <p>Este e um simulado teorico com as seguintes caracteristicas:</p>
                 <ul className="space-y-2 pl-5">
-                  <li>• {questions.length} questões de múltipla escolha</li>
-                  <li>• Cada questão possui 4 alternativas</li>
-                  <li>• Você pode navegar entre as questões livremente</li>
-                  <li>• Todas as questões devem ser respondidas para finalizar</li>
+                  <li>{questions.length} questoes de multipla escolha</li>
+                  <li>Cada questao possui 4 alternativas</li>
+                  <li>Voce pode navegar entre as questoes livremente</li>
+                  <li>Todas as questoes devem ser respondidas para finalizar</li>
                   <li>
-                    • Ao final, você receberá o resultado com o percentual de acertos
+                    Ao final, voce recebera o resultado com o percentual de acertos
                   </li>
                 </ul>
               </div>
@@ -159,8 +173,8 @@ export default function QuizPage() {
 
             <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
               <p className="text-sm text-blue-900">
-                <span className="font-semibold">Dica:</span> Responda com cuidado, pois não
-                será possível alterar suas respostas após finalizar o simulado.
+                <span className="font-semibold">Dica:</span> Responda com cuidado,
+                pois nao sera possivel alterar suas respostas apos finalizar o simulado.
               </p>
             </div>
 

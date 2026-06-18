@@ -1,0 +1,15 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+node_modules
+npm-debug.log*
+coverage
+dist
+build
+*.log
+*.test.ts
+Dockerfile
+.dockerignore
+README.md

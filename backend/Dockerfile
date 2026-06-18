@@ -1,12 +1,15 @@
 FROM node:20-alpine
 
 WORKDIR /app
+RUN chown node:node /app
+USER node
 
-COPY package*.json ./
+COPY --chown=node:node package*.json ./
 
-RUN npm install
+RUN npm ci
 
-COPY . .
+COPY --chown=node:node tsconfig.json ./
+COPY --chown=node:node src ./src
 
 EXPOSE 3333
 

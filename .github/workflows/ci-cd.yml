@@ -109,9 +109,12 @@ jobs:
           token: ${{ secrets.CI_PUSH_TOKEN }}
 
       - name: Configurar identidade do commit
+        env:
+          CI_GIT_USER_NAME: ${{ secrets.CI_GIT_USER_NAME }}
+          CI_GIT_USER_EMAIL: ${{ secrets.CI_GIT_USER_EMAIL }}
         run: |
-          git config user.name "${{ secrets.CI_GIT_USER_NAME }}"
-          git config user.email "${{ secrets.CI_GIT_USER_EMAIL }}"
+          git config user.name "${CI_GIT_USER_NAME}"
+          git config user.email "${CI_GIT_USER_EMAIL}"
 
       - name: Promover para production
         run: |
