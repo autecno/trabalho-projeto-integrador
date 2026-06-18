@@ -25,10 +25,16 @@ async function startWorker() {
   await notificationRepository.ensureSchema();
 
   const connection = createRedisConnection();
+  await connection.ping();
+  console.info('Redis connected for appointment reminder worker.');
 
   const worker = new Worker<AppointmentReminderJobData>(
     APPOINTMENT_REMINDER_QUEUE,
     async (job) => {
+      console.info(
+        `Processing reminder job ${job.id} for appointment ${job.data.appointmentId} (${job.data.reminderType}).`,
+      );
+
       const appointment = await appointmentRepository.findById(
         job.data.appointmentId,
       );
@@ -79,6 +85,18 @@ async function startWorker() {
       `Reminder job ${job?.id ?? 'unknown'} failed: ${error.message}`,
       error,
     );
+  });
+
+  worker.on('error', (error) => {
+    console.error(`Reminder worker error: ${error.message}`, error);
+  });
+
+  worker.on('active', (job) => {
+    console.info(`Reminder job ${job.id} is active.`);
+  });
+
+  worker.on('stalled', (jobId) => {
+    console.warn(`Reminder job ${jobId} stalled and will be retried.`);
   });
 
   worker.on('completed', (job) => {
