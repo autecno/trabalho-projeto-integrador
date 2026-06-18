@@ -24,40 +24,14 @@ type ModuleDetail = {
   quizCount: number;
 };
 
-type QuizQuestion = {
-  id: number;
-  moduleId: number;
-  prompt: string;
-  options: string[];
-  explanation: string | null;
-};
-
-type QuizAnswerState = Record<number, number>;
-
-type QuizResult = {
-  total: number;
-  correct: number;
-  results: Array<{
-    questionId: number;
-    correct: boolean;
-    selectedOptionIndex: number;
-    correctOptionIndex: number;
-    explanation: string | null;
-  }>;
-};
-
 export default function ModulePage() {
   const params = useParams<{ moduleId: string }>();
   const router = useRouter();
   const token = getValidStoredToken();
   const [module, setModule] = useState<ModuleDetail | null>(null);
-  const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
-  const [selectedAnswers, setSelectedAnswers] = useState<QuizAnswerState>({});
-  const [quizResult, setQuizResult] = useState<QuizResult | null>(null);
   const [filter, setFilter] = useState<'all' | 'video' | 'text'>('all');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
 
   const moduleId = Number(params.moduleId);
   const invalidModuleId = !Number.isFinite(moduleId) || moduleId <= 0;
@@ -85,23 +59,14 @@ export default function ModulePage() {
       setError(null);
 
       try {
-        const [moduleResponse, quizResponse] = await Promise.all([
-          apiFetch(`/learning/modules/${moduleId}`),
-          apiFetch(`/learning/modules/${moduleId}/quiz`),
-        ]);
+        const moduleResponse = await apiFetch(`/learning/modules/${moduleId}`);
 
         const modulePayload = await readApiJson<ModuleDetail>(
           moduleResponse,
           'Não foi possível carregar o módulo.',
         );
 
-        const quizPayload = await readApiJson<QuizQuestion[]>(
-          quizResponse,
-          'Não foi possível carregar o simulado.',
-        );
-
         setModule(modulePayload);
-        setQuizQuestions(quizPayload);
       } catch (err) {
         setError(
           getFriendlyErrorMessage(err, 'Falha ao carregar o módulo.'),
@@ -252,63 +217,18 @@ export default function ModulePage() {
 
           <aside className="space-y-6">
             <Card>
-              <div>
+              <div className="space-y-4">
                 <h2 className="text-lg font-semibold text-slate-900">Simulado do módulo</h2>
-                <p className="mt-2 text-slate-600">
-                  Resolva as questões abaixo para praticar o conteúdo antes da prova.
+                <p className="text-slate-600">
+                  Pratique com questões de múltipla escolha para se preparar para a prova.
                 </p>
+                <Link href={`/learning/${moduleId}/quiz`}>
+                  <Button className="w-full bg-blue-600 hover:bg-blue-700">
+                    Iniciar Prova
+                  </Button>
+                </Link>
               </div>
             </Card>
-
-            {quizQuestions.map((question) => (
-              <Card key={question.id}>
-                <div className="space-y-4">
-                  <p className="font-semibold text-slate-900">{question.prompt}</p>
-                  {question.options.map((option, index) => (
-                    <button
-                      key={option}
-                      className={`block w-full rounded-2xl border p-3 text-left transition ${
-                        selectedAnswers[question.id] === index
-                          ? 'border-emerald-500 bg-emerald-50'
-                          : 'border-slate-200 bg-white'
-                      }`}
-                      onClick={() => handleSelectAnswer(question.id, index)}
-                      type="button"
-                    >
-                      {option}
-                    </button>
-                  ))}
-                </div>
-              </Card>
-            ))}
-
-            <div className="space-y-4">
-              <Button onClick={handleSubmitQuiz} disabled={submitting}>
-                {submitting ? 'Enviando...' : 'Enviar simulado'}
-              </Button>
-
-              {quizResult && (
-                <Card>
-                  <div className="space-y-3">
-                    <p className="text-lg font-semibold text-slate-900">
-                      Resultado: {quizResult.correct} de {quizResult.total}
-                    </p>
-                    {quizResult.results.map((result) => (
-                      <div key={result.questionId} className="space-y-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <p className="text-sm text-slate-700">
-                          Questão {result.questionId} ? {result.correct ? 'Correta' : 'Incorreta'}
-                        </p>
-                        <p className="text-sm text-slate-600">Resposta selecionada: opção {result.selectedOptionIndex + 1}</p>
-                        <p className="text-sm text-slate-600">Resposta correta: opção {result.correctOptionIndex + 1}</p>
-                        {result.explanation && (
-                          <p className="text-sm text-slate-600">Explicação: {result.explanation}</p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </Card>
-              )}
-            </div>
           </aside>
         </div>
       )}

@@ -7,6 +7,7 @@ import { registerInstructorRoutes } from './routes/instructors.route';
 import { registerLearningRoutes } from './routes/learning.route';
 import { registerNotificationsRoutes } from './routes/notifications.route';
 import { registerProfileRoutes } from './routes/profile.route';
+import { registerQuizRoutes } from './routes/quiz.route';
 import { registerUserRoutes } from './routes/users.route';
 import { AppointmentRepository } from './repositories/appointment.repository';
 import { LearningRepository } from './repositories/learning.repository';
@@ -41,6 +42,10 @@ export async function buildApp(options: BuildAppOptions) {
     jwtSecret,
   });
   await registerLearningRoutes(fastify, {
+    jwtSecret,
+    learningRepository: options.learningRepository,
+  });
+  await registerQuizRoutes(fastify, {
     jwtSecret,
     learningRepository: options.learningRepository,
   });
