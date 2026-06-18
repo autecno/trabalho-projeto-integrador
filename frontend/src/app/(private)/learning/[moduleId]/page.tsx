@@ -79,47 +79,6 @@ export default function ModulePage() {
     loadData();
   }, [token, moduleId, invalidModuleId, router]);
 
-  const handleSelectAnswer = (questionId: number, optionIndex: number) => {
-    setSelectedAnswers((current) => ({ ...current, [questionId]: optionIndex }));
-  };
-
-  const handleSubmitQuiz = async () => {
-    if (!token) {
-      return;
-    }
-
-    setSubmitting(true);
-    setError(null);
-
-    try {
-      const payload = Object.entries(selectedAnswers).map(([questionId, selectedOptionIndex]) => ({
-        questionId: Number(questionId),
-        selectedOptionIndex,
-      }));
-
-      const response = await apiFetch(`/learning/modules/${moduleId}/quiz/submit`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ answers: payload }),
-      });
-
-      const result = await readApiJson<QuizResult>(
-        response,
-        'Falha ao enviar o simulado.',
-      );
-
-      setQuizResult(result);
-    } catch (err) {
-      setError(
-        getFriendlyErrorMessage(err, 'Erro ao enviar o simulado.'),
-      );
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   return (
     <main className="mx-auto min-h-screen max-w-6xl px-4 py-28">
       <div className="mb-8 flex flex-col gap-4">
