@@ -21,7 +21,7 @@ on:
           - teste
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-cd-${{ github.ref }}
@@ -77,6 +77,8 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
 
     steps:
       - name: Validar segredos de Git

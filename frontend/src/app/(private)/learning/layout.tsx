@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { getStoredTokenPayload } from "@/lib/auth";
+import { getStoredTokenPayload, getValidStoredToken } from "@/lib/auth";
 
 type LearningLayoutProps = Readonly<{
   children: React.ReactNode;
@@ -10,7 +10,7 @@ type LearningLayoutProps = Readonly<{
 
 export default function LearningLayout({ children }: LearningLayoutProps) {
   const router = useRouter();
-  const tokenPayload = getStoredTokenPayload();
+  const tokenPayload = getValidStoredToken() ? getStoredTokenPayload() : null;
 
   useEffect(() => {
     if (!tokenPayload) {

@@ -1,4 +1,5 @@
 const TOKEN_STORAGE_KEY = "autecno.jwt";
+export const AUTH_CHANGED_EVENT = "autecno:auth-changed";
 
 export type StoredTokenPayload = {
   sub: string;
@@ -27,6 +28,7 @@ export function setStoredToken(token: string) {
   }
 
   window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
+  dispatchAuthChangedEvent();
 }
 
 export function clearStoredToken() {
@@ -35,6 +37,7 @@ export function clearStoredToken() {
   }
 
   window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+  dispatchAuthChangedEvent();
 }
 
 export function getStoredTokenPayload(): StoredTokenPayload | null {
@@ -49,7 +52,7 @@ export function getStoredTokenPayload(): StoredTokenPayload | null {
       return null;
     }
 
-    const normalizedPayload = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const normalizedPayload = payload.replaceAll("-", "+").replaceAll("_", "/");
     const paddedPayload = normalizedPayload.padEnd(
       normalizedPayload.length + ((4 - (normalizedPayload.length % 4)) % 4),
       "=",
@@ -59,4 +62,35 @@ export function getStoredTokenPayload(): StoredTokenPayload | null {
   } catch {
     return null;
   }
+}
+
+export function isStoredTokenExpired(payload: StoredTokenPayload | null) {
+  if (!payload?.exp) {
+    return true;
+  }
+
+  return payload.exp * 1000 <= Date.now();
+}
+
+export function getValidStoredToken() {
+  const token = getStoredToken();
+  if (!token) {
+    return null;
+  }
+
+  const payload = getStoredTokenPayload();
+  if (isStoredTokenExpired(payload)) {
+    clearStoredToken();
+    return null;
+  }
+
+  return token;
+}
+
+function dispatchAuthChangedEvent() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(new Event(AUTH_CHANGED_EVENT));
 }

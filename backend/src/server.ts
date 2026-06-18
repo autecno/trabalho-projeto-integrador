@@ -43,6 +43,7 @@ async function start() {
       userRepository,
       appointmentRepository,
       learningRepository,
+      notificationRepository,
       appointmentReminderQueue,
     });
 
