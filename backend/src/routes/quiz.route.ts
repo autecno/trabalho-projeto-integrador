@@ -59,6 +59,23 @@ export async function registerQuizRoutes(
       }
 
       try {
+        const status = await options.learningRepository.getModuleStatus(
+          Number(authenticatedRequest.user.sub),
+          moduleIdNumber,
+        );
+        if (!status) {
+          reply.status(404).send({ message: 'MÃ³dulo nÃ£o encontrado.' });
+          return;
+        }
+
+        if (!status.quizUnlocked) {
+          reply.status(409).send({
+            message: 'Conclua todos os conteÃºdos do mÃ³dulo antes de iniciar a prova.',
+            progress: status,
+          });
+          return;
+        }
+
         const questions = await options.learningRepository.listQuizQuestionsByModule(
           moduleIdNumber,
         );
@@ -70,6 +87,7 @@ export async function registerQuizRoutes(
 
         reply.send({
           moduleId: moduleIdNumber,
+          latestQuizResult: status.latestQuizResult,
           questions: questions.map((q) => ({
             id: q.id,
             moduleId: q.moduleId,
@@ -114,20 +132,41 @@ export async function registerQuizRoutes(
       }
 
       try {
+        const status = await options.learningRepository.getModuleStatus(
+          Number(authenticatedRequest.user.sub),
+          moduleIdNumber,
+        );
+        if (!status) {
+          reply.status(404).send({ message: 'MÃ³dulo nÃ£o encontrado.' });
+          return;
+        }
+
+        if (!status.quizUnlocked) {
+          reply.status(409).send({
+            message: 'Conclua todos os conteÃºdos do mÃ³dulo antes de enviar a prova.',
+            progress: status,
+          });
+          return;
+        }
+
         const result = await options.learningRepository.evaluateQuizAnswers(
           moduleIdNumber,
           answers,
         );
-
-        const percentage = result.total > 0 ? (result.correct / result.total) * 100 : 0;
+        const savedAttempt = await options.learningRepository.recordQuizAttempt(
+          Number(authenticatedRequest.user.sub),
+          moduleIdNumber,
+          result,
+        );
 
         reply.send({
           moduleId: moduleIdNumber,
-          totalQuestions: result.total,
-          correctAnswers: result.correct,
-          wrongAnswers: result.total - result.correct,
-          percentageCorrect: parseFloat(percentage.toFixed(2)),
-          passed: percentage >= 70, // 70% to pass
+          totalQuestions: savedAttempt.totalQuestions,
+          correctAnswers: savedAttempt.correctAnswers,
+          wrongAnswers: savedAttempt.wrongAnswers,
+          percentageCorrect: savedAttempt.percentageCorrect,
+          passed: savedAttempt.passed,
+          completedAt: savedAttempt.completedAt,
           results: result.results.map((r) => ({
             questionId: r.questionId,
             isCorrect: r.correct,

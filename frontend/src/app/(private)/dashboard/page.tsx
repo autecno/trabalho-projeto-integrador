@@ -45,6 +45,14 @@ type Appointment = {
   counterpartTotalRatings: number;
   currentUserRatingScore: number | null;
   canCurrentUserRate: boolean;
+  studentLegislationProgress: {
+    id: number;
+    title: string;
+    contentCount: number;
+    completedContentCount: number;
+    progressPercent: number;
+    quizCompleted: boolean;
+  } | null;
 };
 
 type NextAppointment = {
@@ -756,6 +764,34 @@ export default function DashboardPage() {
                         <p className="text-sm text-slate-600">
                           Data: {formatDateTime(appointment.scheduledAt)}
                         </p>
+                        {!isStudent && appointment.studentLegislationProgress && (
+                          <div className="mt-2 max-w-sm space-y-1 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                            <div className="flex items-center justify-between gap-3 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+                              <span>Legislacao</span>
+                              <span>
+                                {appointment.studentLegislationProgress.progressPercent}%
+                              </span>
+                            </div>
+                            <div className="h-2 overflow-hidden rounded-full bg-white">
+                              <div
+                                className="h-full rounded-full bg-emerald-500"
+                                style={{
+                                  width: `${appointment.studentLegislationProgress.progressPercent}%`,
+                                }}
+                              />
+                            </div>
+                            <p className="text-xs text-slate-600">
+                              {
+                                appointment.studentLegislationProgress
+                                  .completedContentCount
+                              }
+                              /{appointment.studentLegislationProgress.contentCount} conteudos
+                              {appointment.studentLegislationProgress.quizCompleted
+                                ? " e prova finalizada"
+                                : " e prova pendente"}
+                            </p>
+                          </div>
+                        )}
                         <p className="text-sm text-slate-600">
                           {isStudent ? "Média do instrutor: " : "Média do aluno: "}
                           {formatRatingSummary(

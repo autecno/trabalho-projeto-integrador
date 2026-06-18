@@ -149,6 +149,21 @@ export async function registerLearningRoutes(
         return reply.status(400).send({ message: 'moduleId inválido.' });
       }
 
+      const status = await options.learningRepository.getModuleStatus(
+        Number(authenticatedRequest.user.sub),
+        moduleId,
+      );
+      if (!status) {
+        return reply.status(404).send({ message: 'MÃ³dulo nÃ£o encontrado.' });
+      }
+
+      if (!status.quizUnlocked) {
+        return reply.status(409).send({
+          message: 'Conclua todos os conteÃºdos do mÃ³dulo antes de iniciar a prova.',
+          progress: status,
+        });
+      }
+
       const questions = await options.learningRepository.listQuizQuestionsByModule(moduleId);
       return questions;
     },
@@ -169,9 +184,29 @@ export async function registerLearningRoutes(
         return reply.status(400).send({ message: 'moduleId inválido.' });
       }
 
+      const status = await options.learningRepository.getModuleStatus(
+        Number(authenticatedRequest.user.sub),
+        moduleId,
+      );
+      if (!status) {
+        return reply.status(404).send({ message: 'MÃ³dulo nÃ£o encontrado.' });
+      }
+
+      if (!status.quizUnlocked) {
+        return reply.status(409).send({
+          message: 'Conclua todos os conteÃºdos do mÃ³dulo antes de enviar a prova.',
+          progress: status,
+        });
+      }
+
       const result = await options.learningRepository.evaluateQuizAnswers(
         moduleId,
         request.body?.answers ?? [],
+      );
+      await options.learningRepository.recordQuizAttempt(
+        Number(authenticatedRequest.user.sub),
+        moduleId,
+        result,
       );
 
       return result;
