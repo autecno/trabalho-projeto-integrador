@@ -5,6 +5,7 @@ import {
   LearningRepository,
   QuizAnswerSubmission,
 } from '../repositories/learning.repository';
+import { assertStudent, requireUnlockedQuiz } from './learning-guards';
 
 type RegisterLearningRoutesOptions = {
   jwtSecret: string;
@@ -19,15 +20,6 @@ type QuizSubmissionBody = {
   answers?: QuizAnswerSubmission[];
 };
 
-function assertStudent(user: AuthTokenPayload, reply: any) {
-  if (user.role !== 'student') {
-    reply.status(403).send({ message: 'Apenas alunos podem acessar este recurso.' });
-    return false;
-  }
-
-  return true;
-}
-
 export async function registerLearningRoutes(
   fastify: FastifyInstance,
   options: RegisterLearningRoutesOptions,
@@ -41,15 +33,11 @@ export async function registerLearningRoutes(
     { preHandler: authenticateRequest },
     async (request, reply) => {
       const authenticatedRequest = request as typeof request & AuthenticatedRequest;
-      if (!assertStudent(authenticatedRequest.user, reply)) {
-        return;
-      }
+      if (!assertStudent(authenticatedRequest.user, reply)) return;
 
-      const modules = await options.learningRepository.listModulesByStudent(
+      return options.learningRepository.listModulesByStudent(
         Number(authenticatedRequest.user.sub),
       );
-
-      return modules;
     },
   );
 
@@ -58,14 +46,11 @@ export async function registerLearningRoutes(
     { preHandler: authenticateRequest },
     async (request, reply) => {
       const authenticatedRequest = request as typeof request & AuthenticatedRequest;
-      if (!assertStudent(authenticatedRequest.user, reply)) {
-        return;
-      }
+      if (!assertStudent(authenticatedRequest.user, reply)) return;
 
-      const params = request.params as { moduleId: string };
-      const moduleId = Number(params.moduleId);
+      const moduleId = Number((request.params as { moduleId: string }).moduleId);
       if (!Number.isFinite(moduleId) || moduleId <= 0) {
-        return reply.status(400).send({ message: 'moduleId inválido.' });
+        return reply.status(400).send({ message: 'moduleId invalido.' });
       }
 
       const module = await options.learningRepository.findModuleById(
@@ -74,7 +59,7 @@ export async function registerLearningRoutes(
       );
 
       if (!module) {
-        return reply.status(404).send({ message: 'Módulo não encontrado.' });
+        return reply.status(404).send({ message: 'Modulo nao encontrado.' });
       }
 
       return module;
@@ -86,19 +71,16 @@ export async function registerLearningRoutes(
     { preHandler: authenticateRequest },
     async (request, reply) => {
       const authenticatedRequest = request as typeof request & AuthenticatedRequest;
-      if (!assertStudent(authenticatedRequest.user, reply)) {
-        return;
-      }
+      if (!assertStudent(authenticatedRequest.user, reply)) return;
 
-      const params = request.params as { contentId: string };
-      const contentId = Number(params.contentId);
+      const contentId = Number((request.params as { contentId: string }).contentId);
       if (!Number.isFinite(contentId) || contentId <= 0) {
-        return reply.status(400).send({ message: 'contentId inválido.' });
+        return reply.status(400).send({ message: 'contentId invalido.' });
       }
 
       const content = await options.learningRepository.findContentById(contentId);
       if (!content) {
-        return reply.status(404).send({ message: 'Conteúdo não encontrado.' });
+        return reply.status(404).send({ message: 'Conteudo nao encontrado.' });
       }
 
       return content;
@@ -110,19 +92,16 @@ export async function registerLearningRoutes(
     { preHandler: authenticateRequest },
     async (request, reply) => {
       const authenticatedRequest = request as typeof request & AuthenticatedRequest;
-      if (!assertStudent(authenticatedRequest.user, reply)) {
-        return;
-      }
+      if (!assertStudent(authenticatedRequest.user, reply)) return;
 
-      const params = request.params as { contentId: string };
-      const contentId = Number(params.contentId);
+      const contentId = Number((request.params as { contentId: string }).contentId);
       if (!Number.isFinite(contentId) || contentId <= 0) {
-        return reply.status(400).send({ message: 'contentId inválido.' });
+        return reply.status(400).send({ message: 'contentId invalido.' });
       }
 
       const content = await options.learningRepository.findContentById(contentId);
       if (!content) {
-        return reply.status(404).send({ message: 'Conteúdo não encontrado.' });
+        return reply.status(404).send({ message: 'Conteudo nao encontrado.' });
       }
 
       await options.learningRepository.recordContentProgress(
@@ -139,18 +118,23 @@ export async function registerLearningRoutes(
     { preHandler: authenticateRequest },
     async (request, reply) => {
       const authenticatedRequest = request as typeof request & AuthenticatedRequest;
-      if (!assertStudent(authenticatedRequest.user, reply)) {
-        return;
-      }
+      if (!assertStudent(authenticatedRequest.user, reply)) return;
 
-      const params = request.params as { moduleId: string };
-      const moduleId = Number(params.moduleId);
+      const moduleId = Number((request.params as { moduleId: string }).moduleId);
       if (!Number.isFinite(moduleId) || moduleId <= 0) {
-        return reply.status(400).send({ message: 'moduleId inválido.' });
+        return reply.status(400).send({ message: 'moduleId invalido.' });
       }
 
-      const questions = await options.learningRepository.listQuizQuestionsByModule(moduleId);
-      return questions;
+      const status = await requireUnlockedQuiz({
+        learningRepository: options.learningRepository,
+        studentId: Number(authenticatedRequest.user.sub),
+        moduleId,
+        reply,
+        purpose: 'start',
+      });
+      if (!status) return;
+
+      return options.learningRepository.listQuizQuestionsByModule(moduleId);
     },
   );
 
@@ -159,19 +143,30 @@ export async function registerLearningRoutes(
     { preHandler: authenticateRequest },
     async (request, reply) => {
       const authenticatedRequest = request as typeof request & AuthenticatedRequest;
-      if (!assertStudent(authenticatedRequest.user, reply)) {
-        return;
+      if (!assertStudent(authenticatedRequest.user, reply)) return;
+
+      const moduleId = Number((request.params as { moduleId: string }).moduleId);
+      if (!Number.isFinite(moduleId) || moduleId <= 0) {
+        return reply.status(400).send({ message: 'moduleId invalido.' });
       }
 
-      const params = request.params as { moduleId: string };
-      const moduleId = Number(params.moduleId);
-      if (!Number.isFinite(moduleId) || moduleId <= 0) {
-        return reply.status(400).send({ message: 'moduleId inválido.' });
-      }
+      const status = await requireUnlockedQuiz({
+        learningRepository: options.learningRepository,
+        studentId: Number(authenticatedRequest.user.sub),
+        moduleId,
+        reply,
+        purpose: 'submit',
+      });
+      if (!status) return;
 
       const result = await options.learningRepository.evaluateQuizAnswers(
         moduleId,
         request.body?.answers ?? [],
+      );
+      await options.learningRepository.recordQuizAttempt(
+        Number(authenticatedRequest.user.sub),
+        moduleId,
+        result,
       );
 
       return result;

@@ -36,6 +36,16 @@ class InMemoryLearningRepository implements LearningRepository {
     active: boolean;
   }> = [];
   private progress: Array<{ userId: number; contentId: number }> = [];
+  private quizAttempts: Array<{
+    userId: number;
+    moduleId: number;
+    totalQuestions: number;
+    correctAnswers: number;
+    wrongAnswers: number;
+    percentageCorrect: number;
+    passed: boolean;
+    completedAt: Date;
+  }> = [];
 
   async ensureSchema() {}
   async seedDefaultLearningData() {}
@@ -43,20 +53,22 @@ class InMemoryLearningRepository implements LearningRepository {
   async listModulesByStudent(studentId: number) {
     return this.modules.map((module) => {
       const moduleContents = this.contents.filter(
-        (content) => content.moduleId === module.id && content.active && content.type === 'video',
+        (content) => content.moduleId === module.id && content.active,
       );
-      const watched = moduleContents.filter((content) =>
+      const completed = moduleContents.filter((content) =>
         this.progress.some((progress) => progress.userId === studentId && progress.contentId === content.id),
       );
+      const quizCount = this.questions.filter((question) => question.moduleId === module.id && question.active).length;
+      const quizCompleted = this.quizAttempts.some((attempt) => attempt.userId === studentId && attempt.moduleId === module.id);
       return {
         id: module.id,
         title: module.title,
         description: module.description,
-        videosCount: moduleContents.length,
-        progressPercent:
-          moduleContents.length > 0
-            ? Math.round((watched.length / moduleContents.length) * 100)
-            : 0,
+        videosCount: moduleContents.filter((content) => content.type === 'video').length,
+        contentCount: moduleContents.length,
+        completedContentCount: completed.length,
+        progressPercent: this.calculateProgress(moduleContents.length, completed.length, quizCount, quizCompleted),
+        quizCompleted,
       };
     });
   }
@@ -71,7 +83,7 @@ class InMemoryLearningRepository implements LearningRepository {
       (content) => content.moduleId === moduleId && content.active,
     );
     const videoContents = moduleContents.filter((content) => content.type === 'video');
-    const watched = videoContents.filter((content) =>
+    const completed = moduleContents.filter((content) =>
       this.progress.some((progress) => progress.userId === studentId && progress.contentId === content.id),
     );
     const quizCount = this.questions.filter(
@@ -83,8 +95,10 @@ class InMemoryLearningRepository implements LearningRepository {
       title: module.title,
       description: module.description,
       videosCount: videoContents.length,
+      contentCount: moduleContents.length,
+      completedContentCount: completed.length,
       progressPercent:
-        videoContents.length > 0 ? Math.round((watched.length / videoContents.length) * 100) : 0,
+        this.calculateProgress(moduleContents.length, completed.length, quizCount, this.getLatestAttempt(studentId, moduleId) !== null),
       contents: moduleContents.map((content) => ({
         id: content.id,
         moduleId: content.moduleId,
@@ -93,6 +107,9 @@ class InMemoryLearningRepository implements LearningRepository {
         summary: content.summary,
       })),
       quizCount,
+      quizUnlocked: moduleContents.length > 0 && completed.length >= moduleContents.length,
+      quizCompleted: this.getLatestAttempt(studentId, moduleId) !== null,
+      latestQuizResult: this.getLatestAttempt(studentId, moduleId),
     };
   }
 
@@ -130,6 +147,40 @@ class InMemoryLearningRepository implements LearningRepository {
       }));
   }
 
+  async getModuleStatus(studentId: number, moduleId: number) {
+    const module = this.modules.find((item) => item.id === moduleId && item.active);
+    if (!module) return null;
+
+    const moduleContents = this.contents.filter(
+      (content) => content.moduleId === moduleId && content.active,
+    );
+    const completed = moduleContents.filter((content) =>
+      this.progress.some((progress) => progress.userId === studentId && progress.contentId === content.id),
+    );
+    const quizCount = this.questions.filter(
+      (question) => question.moduleId === moduleId && question.active,
+    ).length;
+    const latestQuizResult = this.getLatestAttempt(studentId, moduleId);
+
+    return {
+      contentCount: moduleContents.length,
+      completedContentCount: completed.length,
+      quizCount,
+      quizUnlocked: moduleContents.length > 0 && completed.length >= moduleContents.length,
+      quizCompleted: latestQuizResult !== null,
+      progressPercent: this.calculateProgress(moduleContents.length, completed.length, quizCount, latestQuizResult !== null),
+      latestQuizResult,
+    };
+  }
+
+  async getStudentLegislationProgress(studentId: number) {
+    return (
+      (await this.listModulesByStudent(studentId)).find((module) =>
+        module.title.toLowerCase().includes('legisla'),
+      ) ?? null
+    );
+  }
+
   async evaluateQuizAnswers(moduleId: number, answers: QuizAnswerSubmission[]) {
     const questions = this.questions.filter(
       (question) => question.moduleId === moduleId && question.active,
@@ -153,6 +204,46 @@ class InMemoryLearningRepository implements LearningRepository {
       correct,
       results,
     };
+  }
+
+  async recordQuizAttempt(studentId: number, moduleId: number, result: QuizSubmissionResult) {
+    const percentageCorrect = result.total > 0 ? Number(((result.correct / result.total) * 100).toFixed(2)) : 0;
+    const attempt = {
+      userId: studentId,
+      moduleId,
+      totalQuestions: result.total,
+      correctAnswers: result.correct,
+      wrongAnswers: result.total - result.correct,
+      percentageCorrect,
+      passed: percentageCorrect >= 70,
+      completedAt: new Date(),
+    };
+    this.quizAttempts.push(attempt);
+    return attempt;
+  }
+
+  private getLatestAttempt(studentId: number, moduleId: number) {
+    const attempt = this.quizAttempts
+      .filter((item) => item.userId === studentId && item.moduleId === moduleId)
+      .at(-1);
+
+    return attempt
+      ? {
+          totalQuestions: attempt.totalQuestions,
+          correctAnswers: attempt.correctAnswers,
+          wrongAnswers: attempt.wrongAnswers,
+          percentageCorrect: attempt.percentageCorrect,
+          passed: attempt.passed,
+          completedAt: attempt.completedAt,
+        }
+      : null;
+  }
+
+  private calculateProgress(contentCount: number, completedContentCount: number, quizCount: number, quizCompleted: boolean) {
+    const totalSteps = contentCount + (quizCount > 0 ? 1 : 0);
+    if (totalSteps <= 0) return 0;
+    const completedSteps = Math.min(completedContentCount, contentCount) + (quizCompleted && quizCount > 0 ? 1 : 0);
+    return Math.round((completedSteps / totalSteps) * 100);
   }
 
   addModule(title: string, description: string) {
@@ -331,7 +422,7 @@ test('POST /learning/contents/:contentId/progress records progress and updates m
   });
 
   const modules = modulesResponse.json();
-  assert.equal(modules[0].progressPercent, 100);
+  assert.equal(modules[0].progressPercent, 33);
 
   await app.close();
 });
@@ -339,6 +430,8 @@ test('POST /learning/contents/:contentId/progress records progress and updates m
 test('GET /learning/modules/:moduleId/quiz returns questions without correct answer details', async () => {
   const { app, student, student: user, learningRepository } = await createAppWithRepositories({ jwtSecret: JWT_SECRET });
   const module = learningRepository.addModule('Meio Ambiente e Cidadania', 'Teste de quiz');
+  const content = learningRepository.addContent(module.id, 'text', 'Conteudo de quiz', null, 'Resumo', 'Corpo');
+  await learningRepository.recordContentProgress(student.id, content.id);
   learningRepository.addQuestion(module.id, 'Qual prática é correta?', ['A', 'B'], 1, 'Explicação');
 
   const response = await app.inject({
