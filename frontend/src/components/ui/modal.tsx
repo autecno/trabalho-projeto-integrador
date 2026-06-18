@@ -29,24 +29,49 @@ export function Modal({
 }: ModalProps) {
   if (!isOpen) return null;
 
+  const handleBackdropKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') {
+      onClose();
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black bg-opacity-50" onClick={onClose} />
+      <div
+        className="fixed inset-0 bg-black bg-opacity-50"
+        onClick={onClose}
+        onKeyDown={handleBackdropKeyDown}
+        role="button"
+        tabIndex={0}
+        aria-label="Close modal"
+      />
 
       {/* Modal */}
       <div className="flex min-h-screen items-center justify-center p-4">
         <div
           className={`relative w-full ${sizeClasses[size]} rounded-lg bg-white shadow-lg`}
           onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              onClose();
+            }
+          }}
+          role="dialog"
+          tabIndex={-1}
+          aria-modal="true"
+          aria-labelledby="modal-title"
         >
           {/* Header */}
           <div className="border-b border-gray-200 px-6 py-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold text-gray-900">{title}</h2>
+              <h2 id="modal-title" className="text-xl font-semibold text-gray-900">
+                {title}
+              </h2>
               <button
                 onClick={onClose}
                 className="text-gray-400 hover:text-gray-600"
+                aria-label="Close modal"
               >
                 <svg
                   className="h-6 w-6"
